@@ -1,12 +1,12 @@
-// reason code -> plain words. Matches the `BatchSettled(reason)` encoding in the
-// Settlement contract (plan section 4). The agent speaks in plain readings, so
-// these strings are what the UI shows, never the raw code.
+// reason code -> plain words. Matches the `BatchSettled(reason)` encoding in
+// NyxBatchAuction (docs/INTERFACES.md). Humanized copy (user feedback round):
+// the UI explains why a round settled in trader language, never raw codes.
 export const REASONS: Record<number, string> = {
-  0: "depth threshold",
-  1: "buy/sell imbalance at DEX midpoint",
-  2: "notional wait limit",
-  3: "max interval",
-  4: "favorable DEX spread",
+  0: "enough orders queued",
+  1: "buys and sells matched at market price",
+  2: "enough value queued",
+  3: "time limit reached",
+  4: "market moved in traders' favor",
 };
 
 export function reasonWords(code: number | null | undefined): string {

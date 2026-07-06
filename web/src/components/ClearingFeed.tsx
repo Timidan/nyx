@@ -9,10 +9,10 @@ export function ClearingFeed() {
   const rows = [...batches].reverse().slice(0, 24);
 
   return (
-    <Window title="clearing-feed.exe">
+    <Window title="settled-rounds.exe">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="font-display text-[1.25rem] font-semibold text-text">
-          Clearing feed
+          Settled rounds
         </h2>
         <span className="font-mono text-[0.75rem] text-faint">
           latest {rows.length}
@@ -23,18 +23,19 @@ export function ClearingFeed() {
         <table className="w-full min-w-[36rem] border-collapse font-mono text-[0.8125rem] tabular-nums">
           <thead>
             <tr className="border-b-2 border-border text-left text-faint">
-              <Th>batch</Th>
-              <Th>matches</Th>
-              <Th>clearing</Th>
-              <Th>reason</Th>
-              <Th align="right">tx</Th>
+              <Th>round</Th>
+              <Th>orders</Th>
+              <Th>price</Th>
+              <Th>why it settled</Th>
+              <Th align="right">receipt</Th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="py-6 text-center text-faint">
-                  no batches yet — the feed fills as the agent clears
+                  no rounds settled yet — they'll appear here as the agent
+                  trades
                 </td>
               </tr>
             )}

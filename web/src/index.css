@@ -39,6 +39,10 @@
   --color-navy: #1418a8; /* modernized #000080 — title bars, primary action */
   --color-note: #ffde59; /* notification chip yellow */
 
+  /* extra hues for the pulse's reason-code legend */
+  --color-amber: #b8860b;
+  --color-plum: #7d3a86;
+
   /* typography */
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;

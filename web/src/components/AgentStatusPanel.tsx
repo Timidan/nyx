@@ -1,13 +1,13 @@
 import { useAgentState } from "../hooks/useAgentState";
 import { reasonWords } from "../lib/reasons";
-import { fmtToken, fmtUsd } from "../lib/format";
+import { fmtAgo, fmtToken, fmtUsd } from "../lib/format";
 import { Window } from "./Window";
 import type { AgentStatus } from "../types";
 
 const SUBTEXT: Record<AgentStatus, string> = {
-  watching: "accumulating sealed orders",
-  deciding: "evaluating clear conditions",
-  settling: "submitting settlement",
+  watching: "waiting for more orders",
+  deciding: "deciding whether to settle now",
+  settling: "writing the settlement on-chain",
 };
 
 export function AgentStatusPanel() {
@@ -16,11 +16,11 @@ export function AgentStatusPanel() {
 
   const headline =
     data.status === "settling"
-      ? `Cleared: ${reasonWords(data.lastReason)}`
-      : `Waiting: depth ${data.depth} of ${data.depthThreshold}`;
+      ? `Settled — ${reasonWords(data.lastReason)}`
+      : `Watching — ${data.depth} of ${data.depthThreshold} orders needed`;
 
   return (
-    <Window title="agent-monitor.exe">
+    <Window title="agent-monitor.exe" className="h-full">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="font-display text-[1.25rem] font-semibold text-text">
           Agent
@@ -46,13 +46,13 @@ export function AgentStatusPanel() {
 
       <dl className="mt-4 space-y-3">
         <Meter
-          label="depth"
+          label="orders waiting"
           value={`${data.depth} / ${data.depthThreshold}`}
           fill={data.depth / data.depthThreshold}
         />
         {data.notionalWaiting !== undefined && data.notionalMax !== undefined && (
           <Meter
-            label="notional waiting"
+            label="value waiting"
             value={
               data.notionalSymbol
                 ? `${fmtToken(data.notionalWaiting)} / ${fmtToken(data.notionalMax)} ${data.notionalSymbol}`
@@ -62,21 +62,24 @@ export function AgentStatusPanel() {
           />
         )}
         {data.reasonCandidate != null && (
-          <Row label="reason candidate" value={data.reasonCandidate.label} />
+          <Row
+            label="leaning toward"
+            value={reasonWords(data.reasonCandidate.code)}
+          />
         )}
         {data.currentBatchId != null && (
-          <Row label="current batch" value={`#${data.currentBatchId}`} />
+          <Row label="current round" value={`#${data.currentBatchId}`} />
         )}
         <Row
-          label="since last clear"
+          label="last settled"
           value={
             data.secsSinceLastClear === null
               ? "—"
-              : `${data.secsSinceLastClear}s`
+              : fmtAgo(data.secsSinceLastClear)
           }
         />
         <Row
-          label={`${data.pair} DEX ref`}
+          label="market price (BOT DEX)"
           value={data.dexPrice === null ? "—" : data.dexPrice.toFixed(4)}
           valueClass={data.dexPrice === null ? "text-faint" : "text-settle"}
         />

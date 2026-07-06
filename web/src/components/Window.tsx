@@ -18,20 +18,10 @@ export function Window({
     <section className={`border-2 border-border bg-surface shadow-win ${className}`}>
       <div
         aria-hidden="true"
-        className="flex select-none items-center justify-between gap-3 border-b-2 border-border bg-navy px-3 py-1.5"
+        className="select-none border-b-2 border-border bg-navy px-3 py-1.5"
       >
         <span className="font-pixel text-[0.6875rem] leading-none text-white">
           {title}
-        </span>
-        <span className="flex gap-1">
-          {["▁", "▢", "✕"].map((glyph) => (
-            <span
-              key={glyph}
-              className="grid h-4 w-4 place-items-center border-2 border-border bg-surface text-[9px] leading-none text-text"
-            >
-              {glyph}
-            </span>
-          ))}
         </span>
       </div>
       <div className={bodyClassName}>{children}</div>

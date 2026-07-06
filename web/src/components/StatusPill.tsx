@@ -27,8 +27,8 @@ export function StatusPill() {
   const meta = STATE_META[data.status];
   const reasonLine =
     data.lastReason !== null
-      ? `cleared: ${reasonWords(data.lastReason)}`
-      : "watching the book";
+      ? `last round: ${reasonWords(data.lastReason)}`
+      : "no rounds yet";
 
   return (
     <div className="sunken95 flex items-center gap-2.5 px-3 py-1.5">

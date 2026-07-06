@@ -31,3 +31,18 @@ export function fmtToken(n: number): string {
   if (n === 0) return "0";
   return n.toPrecision(2);
 }
+
+/** Humanized elapsed time: 42s ago / 6m ago / 1h 12m ago. */
+export function fmtAgo(secs: number): string {
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return `${h}h ${m}m ago`;
+}
+
+/** Trimmed decimal for form inputs: 0.015000 -> "0.015", 5.000000 -> "5". */
+export function trimNum(n: number, maxDecimals = 6): string {
+  const s = n.toFixed(maxDecimals).replace(/\.?0+$/, "");
+  return s === "" || s === "-" ? "0" : s;
+}

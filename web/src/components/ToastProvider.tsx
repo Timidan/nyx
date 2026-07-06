@@ -115,7 +115,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                         rel="noreferrer"
                         className="font-mono text-[0.75rem] text-navy underline hover:no-underline"
                       >
-                        {t.hrefLabel ?? "view tx ↗"}
+                        {t.hrefLabel ?? "receipt ↗"}
                       </a>
                     )}
                     {t.action && (

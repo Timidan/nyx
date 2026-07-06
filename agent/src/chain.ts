@@ -182,7 +182,7 @@ export async function readLatestBatchSettledReason(
 export async function simulateSettle(
   publicClient: PublicClient,
   config: AgentConfig,
-  account: Address,
+  account: PrivateKeyAccount,
   batchId: bigint,
   clearingPriceX18: bigint,
   reason: number,

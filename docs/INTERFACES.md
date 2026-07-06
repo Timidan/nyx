@@ -162,14 +162,15 @@ GET  /health   — process + RPC health
 | `notionalMax` | `string` | Configured notional threshold as a decimal integer in `notionalUnit`. |
 | `notionalUnit` | `string` | `token1X18`: token1-normalized X18 units. In the primary deployment, token1 is BOUSDT. |
 
-## Deployment artifacts (fill in when deployed)
+## Deployment artifacts (deployed Jul 6)
 
 | Item | Value |
 |---|---|
-| NyxBatchAuction | _pending_ |
+| NyxBatchAuction | `0x4aD7971C36dae9BF9c81AFC46AaF9A60F6a14777` |
+| Deploy tx | `0x4d255ffd772b5c0f7d399a9c6c0ce3accfc459eb36adb72332ba04f75b5e9917` |
 | Deployer | `0xcED560b8C815116C05F8C1045F10f0339bE11D60` |
 | Agent wallet | `0x253CbCB3A6221E2542516E5CB765C754bf3695b0` |
-| Milestone settlement tx | _pending_ |
+| Milestone settlement tx | `0x6a8a55dd60fa4e5863a2070036da113de74681f3f3f075cced4aee7d2c5f4683` (batch 1, reason 1 imbalance, clearing 9.66 BOUSDT/WBOT, sent by agent wallet, escrow fully drained) |
 
 ABIs: after `forge build`, canonical ABIs are copied to `shared/abi/*.json`
 for the frontend.

@@ -213,7 +213,7 @@ export class NyxAgent {
       simulation = await simulateSettle(
         this.publicClient,
         this.config,
-        account.address,
+        account,
         this.currentBatchId,
         settlement.clearingPriceX18,
         decision.reason,

@@ -36,7 +36,7 @@
 | Weight | Requirement | What satisfies it | Status | Evidence (where a judge sees it) |
 |---|---|---|---|---|
 | MANDATORY | Registration + Builders Telegram | Both team members registered & joined | ☐ | — |
-| MANDATORY | Genuine deployment on BOT Chain 968 | Contracts deployed, real verifiable txs | ☐ | Contract address + tx hash on scan.bohr.life |
+| MANDATORY | Genuine deployment on BOT Chain 968 | Contracts deployed, real verifiable txs | ✅ Jul 6 | `NyxBatchAuction` `0x4aD7971C36dae9BF9c81AFC46AaF9A60F6a14777`; autonomous settlement tx `0x6a8a55dd…5f4683` on scan.bohr.life |
 | MANDATORY | X showcase tweet tagging **@BOTChain_ai** | Name + what it solves + BOT Chain usage + screenshot/demo link + GitHub + track | ☐ | Tweet URL in submission |
 | MANDATORY | Submission form, every field | Name, track, summary, demo, repo, contract addr, tx hash, write-up, next steps, X link | ☐ | Form |
 | MANDATORY | Demo video 2–3 min | Shows agent self-triggering + settlement verifying on-chain; show the explorer | ☐ | Video link |

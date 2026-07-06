@@ -84,9 +84,9 @@ Full deployment runbook: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 | Item | Value |
 |---|---|
-| NyxBatchAuction | _deploying — see docs/INTERFACES.md_ |
-| Milestone settlement tx | _pending_ |
-| Explorer | https://scan.bohr.life |
+| NyxBatchAuction | [`0x4aD7971C36dae9BF9c81AFC46AaF9A60F6a14777`](https://scan.bohr.life/address/0x4aD7971C36dae9BF9c81AFC46AaF9A60F6a14777) |
+| First autonomous settlement | [`0x6a8a55dd…5f4683`](https://scan.bohr.life/tx/0x6a8a55dd60fa4e5863a2070036da113de74681f3f3f075cced4aee7d2c5f4683) — batch 1, reason: imbalance, cleared at 9.66 BOUSDT/WBOT |
+| Agent wallet | [`0x253CbCB3A6221E2542516E5CB765C754bf3695b0`](https://scan.bohr.life/address/0x253CbCB3A6221E2542516E5CB765C754bf3695b0) |
 
 ## Honest limitations
 

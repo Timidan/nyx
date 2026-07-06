@@ -32,6 +32,18 @@ trades two FaucetERC20 demo tokens via NyxAMMPair, but the agent still reads
 the real BOT DEX pair price every cycle as its reference input, stated
 honestly in the write-up.
 
+Implementation decision (Jul 6): **primary selected; fallback not used.**
+`NyxBatchAuction.token0 = WBOT`, `token1 = BOUSDT`, and `referencePair` is the
+real BOUSDT/WBOT pair above. `clearingPriceX18` means normalized BOUSDT per
+WBOT. Read-only verification found BOUSDT has 6 decimals, WBOT has 18 decimals,
+and the pair reserves were about 98.531658 BOUSDT / 10.160298162694176879 WBOT
+at verification time. WBOT bytecode contains WETH9-style `deposit()` and
+`withdraw(uint256)` selectors; `WETH9()` on the router returns the WBOT
+address. The published `SwapRouter` is verified as a Uniswap V3 SwapRouter, not
+a UniV2 router: `getAmountsOut` reverts, while V3 WBOT/BOUSDT pools exist at
+fee tiers 500, 3000, and 10000. Demo token prep should use tiny WBOT wraps and
+V3 `exactInputSingle` swaps; BOUSDT `mint` is role-restricted.
+
 ## Contracts
 
 ### IFaucetERC20 (fallback path only)

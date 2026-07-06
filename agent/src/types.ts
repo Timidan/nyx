@@ -1,0 +1,53 @@
+export type Address = `0x${string}`;
+export type Hex32 = `0x${string}`;
+
+export interface OrderReveal {
+  trader: Address;
+  batchId: bigint;
+  sellToken: Address;
+  sellAmount: bigint;
+  minBuyAmount: bigint;
+  salt: Hex32;
+}
+
+export type QueueStatus = "queued" | "settled" | "cancelled" | "quarantined";
+
+export interface QueuedOrder {
+  commitment: Hex32;
+  order: OrderReveal;
+  status: QueueStatus;
+  receivedAt: number;
+  quarantineReason?: string;
+}
+
+export interface TokenInfo {
+  address: Address;
+  symbol: string;
+  decimals: number;
+}
+
+export interface DexSnapshot {
+  pair: Address;
+  pairToken0: Address;
+  pairToken1: Address;
+  reserve0: bigint;
+  reserve1: bigint;
+  token0: TokenInfo;
+  token1: TokenInfo;
+  referencePriceX18: bigint;
+}
+
+export interface AgentStatus {
+  currentBatchId: string | null;
+  reasonCandidate: { code: number; label: string } | null;
+  queueDepth: number;
+  lastTx: Hex32 | null;
+  referencePriceX18: string | null;
+  secondsSinceLastClear: number;
+  agentState: string;
+}
+
+export interface MatchedOrder {
+  commitment: Hex32;
+  order: OrderReveal;
+}

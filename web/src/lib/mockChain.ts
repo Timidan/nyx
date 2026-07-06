@@ -3,17 +3,17 @@ import type { AgentState, AgentStatus, Batch, SealResult, SealedOrder } from "..
 // -----------------------------------------------------------------------------
 // Mock on-chain source.
 //
-// This simulates the agent + Settlement contract so the frontend runs, animates,
-// and demos before any contract is wired. It settles a new batch every ~15-25s
-// on a randomly chosen reason (0-4), drives the agent status through
+// This simulates the agent + NyxBatchAuction so the frontend runs, animates,
+// and demos before deployment. It settles a new batch every ~15-25s on a
+// randomly chosen reason (0-4), drives the agent status through
 // watching -> deciding -> settling, and keeps live heuristic readings.
 //
-// It is the ONLY place mock behaviour lives. The hooks read from it; when the
-// contracts are ready, the hooks swap their data source to viem and this file
-// is deleted. See the SWAP POINT comments in src/hooks/*.
+// It is the ONLY place mock behaviour lives, and it stays in the tree:
+// when VITE_AUCTION_ADDRESS is unset the app runs on this simulator
+// ("Simulated data" badge); when set, the hooks read the real chain instead.
 // -----------------------------------------------------------------------------
 
-const PAIR = "WBOT/USDC";
+const PAIR = "WBOT/BOUSDT";
 const DEPTH_THRESHOLD = 8;
 const NOTIONAL_MAX = 25000;
 
@@ -74,6 +74,8 @@ class MockChain {
       status: this.status,
       live: true,
       lastReason: this.lastReason,
+      reasonCandidate: null,
+      currentBatchId: this.nextBatchId,
       depth: this.depth,
       depthThreshold: DEPTH_THRESHOLD,
       notionalWaiting: this.notionalWaiting,
@@ -91,7 +93,13 @@ class MockChain {
     this.depth = Math.min(DEPTH_THRESHOLD, this.depth + 1);
     this.notionalWaiting += Math.round(order.amount * order.limitPrice);
     this.notify();
-    return { commitment: randHex(32), side: order.side };
+    return {
+      commitment: randHex(32),
+      side: order.side,
+      txHash: randHex(32),
+      revealDelivered: true,
+      reveal: null,
+    };
   }
 
   // ---- simulation ---------------------------------------------------------

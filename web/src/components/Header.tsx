@@ -1,3 +1,5 @@
+import { IS_LIVE } from "../lib/config";
+import { ConnectButton } from "./ConnectButton";
 import { StatusPill } from "./StatusPill";
 
 export function Header() {
@@ -12,7 +14,15 @@ export function Header() {
             private batch auctions
           </span>
         </div>
-        <StatusPill />
+        <div className="flex items-center gap-3">
+          {!IS_LIVE && (
+            <span className="rounded-input border border-border px-2 py-1 font-mono text-[0.6875rem] text-faint">
+              Simulated data
+            </span>
+          )}
+          <StatusPill />
+          <ConnectButton />
+        </div>
       </div>
     </header>
   );

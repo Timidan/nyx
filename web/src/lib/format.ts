@@ -1,3 +1,5 @@
+import { formatUnits } from "viem";
+
 const EXPLORER = "https://scan.bohr.life";
 
 /** 0x1234…abcd — truncated hash/address for dense data rows. */
@@ -15,4 +17,9 @@ export function txUrl(hash: string): string {
 export function fmtUsd(n: number): string {
   if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
   return `$${Math.round(n)}`;
+}
+
+/** 1e18-scaled fixed-point (…X18) -> human number for display. */
+export function fromX18(x: bigint | string): number {
+  return Number(formatUnits(typeof x === "bigint" ? x : BigInt(x), 18));
 }

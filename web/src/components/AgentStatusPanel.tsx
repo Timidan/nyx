@@ -6,7 +6,7 @@ import type { AgentStatus } from "../types";
 const SUBTEXT: Record<AgentStatus, string> = {
   watching: "accumulating sealed orders",
   deciding: "evaluating clear conditions",
-  settling: "submitting settlement proof",
+  settling: "submitting settlement",
 };
 
 export function AgentStatusPanel() {
@@ -28,10 +28,14 @@ export function AgentStatusPanel() {
         <h2 className="font-display text-[1.25rem] font-semibold text-text">
           Agent
         </h2>
-        {data.live && (
+        {data.live ? (
           <span className="flex items-center gap-1.5 font-mono text-[0.6875rem] uppercase tracking-wider text-signal">
             <span className="h-1.5 w-1.5 rounded-full bg-signal" />
             live
+          </span>
+        ) : (
+          <span className="font-mono text-[0.6875rem] uppercase tracking-wider text-faint">
+            agent unreachable
           </span>
         )}
       </div>
@@ -49,16 +53,31 @@ export function AgentStatusPanel() {
           value={`${data.depth} / ${data.depthThreshold}`}
           fill={data.depth / data.depthThreshold}
         />
-        <Meter
-          label="notional waiting"
-          value={`${fmtUsd(data.notionalWaiting)} / ${fmtUsd(data.notionalMax)}`}
-          fill={data.notionalWaiting / data.notionalMax}
+        {data.notionalWaiting !== undefined && data.notionalMax !== undefined && (
+          <Meter
+            label="notional waiting"
+            value={`${fmtUsd(data.notionalWaiting)} / ${fmtUsd(data.notionalMax)}`}
+            fill={data.notionalWaiting / data.notionalMax}
+          />
+        )}
+        {data.reasonCandidate != null && (
+          <Row label="reason candidate" value={data.reasonCandidate.label} />
+        )}
+        {data.currentBatchId != null && (
+          <Row label="current batch" value={`#${data.currentBatchId}`} />
+        )}
+        <Row
+          label="since last clear"
+          value={
+            data.secsSinceLastClear === null
+              ? "—"
+              : `${data.secsSinceLastClear}s`
+          }
         />
-        <Row label="since last clear" value={`${data.secsSinceLastClear}s`} />
         <Row
           label={`${data.pair} DEX ref`}
-          value={data.dexPrice.toFixed(4)}
-          valueClass="text-settle"
+          value={data.dexPrice === null ? "—" : data.dexPrice.toFixed(4)}
+          valueClass={data.dexPrice === null ? "text-faint" : "text-settle"}
         />
       </dl>
     </section>

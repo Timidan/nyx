@@ -14,6 +14,13 @@ interface Toast {
   variant: ToastVariant;
   title: string;
   message?: string;
+  /** external link (e.g. explorer tx), rendered in signal color */
+  href?: string;
+  hrefLabel?: string;
+  /** action button (e.g. retry); action toasts stick until dismissed */
+  action?: { label: string; onClick: () => void };
+  /** stay until dismissed manually */
+  sticky?: boolean;
 }
 
 interface ToastContextValue {
@@ -39,13 +46,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const idRef = useRef(0);
 
-  const push = useCallback((toast: Omit<Toast, "id">) => {
-    const id = ++idRef.current;
-    setToasts((cur) => [...cur, { ...toast, id }]);
-    setTimeout(() => {
-      setToasts((cur) => cur.filter((t) => t.id !== id));
-    }, 4200);
+  const dismiss = useCallback((id: number) => {
+    setToasts((cur) => cur.filter((t) => t.id !== id));
   }, []);
+
+  const push = useCallback(
+    (toast: Omit<Toast, "id">) => {
+      const id = ++idRef.current;
+      setToasts((cur) => [...cur, { ...toast, id }]);
+      const sticky = toast.sticky || Boolean(toast.action);
+      if (!sticky) {
+        setTimeout(() => dismiss(id), toast.href ? 6500 : 4200);
+      }
+    },
+    [dismiss],
+  );
 
   return (
     <ToastContext.Provider value={{ push }}>
@@ -59,7 +74,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               className="pointer-events-auto flex overflow-hidden rounded-card border border-border bg-surface-2 shadow-xl"
             >
               <span className={`w-1 shrink-0 ${accent.bar}`} />
-              <div className="px-4 py-3">
+              <div className="min-w-0 flex-1 px-4 py-3">
                 <div className={`text-[0.875rem] font-medium ${accent.title}`}>
                   {t.title}
                 </div>
@@ -68,7 +83,43 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                     {t.message}
                   </div>
                 )}
+                {(t.href || t.action) && (
+                  <div className="mt-2 flex items-center gap-3">
+                    {t.href && (
+                      <a
+                        href={t.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-[0.75rem] text-signal hover:underline"
+                      >
+                        {t.hrefLabel ?? "view tx ↗"}
+                      </a>
+                    )}
+                    {t.action && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          dismiss(t.id);
+                          t.action!.onClick();
+                        }}
+                        className="rounded-input border border-border bg-surface px-2.5 py-1 text-[0.75rem] text-text hover:border-signal"
+                      >
+                        {t.action.label}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
+              {(t.sticky || t.action) && (
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  onClick={() => dismiss(t.id)}
+                  className="self-start px-2.5 py-2 text-muted hover:text-text"
+                >
+                  ×
+                </button>
+              )}
             </div>
           );
         })}

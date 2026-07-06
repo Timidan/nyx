@@ -30,6 +30,13 @@ export function ClearingFeed() {
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={5} className="py-6 text-center text-faint">
+                  no batches yet — the feed fills as the agent clears
+                </td>
+              </tr>
+            )}
             {rows.map((b) => (
               <tr
                 key={b.batchId}

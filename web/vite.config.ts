@@ -5,4 +5,11 @@ import tailwindcss from '@tailwindcss/vite';
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    fs: {
+      // allow importing ../shared/abi/NyxBatchAuction.json (forge artifact)
+      // from outside the web/ root once it exists
+      allow: ['.', '..'],
+    },
+  },
 });

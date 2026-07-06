@@ -1,7 +1,12 @@
 import { useState, type FormEvent } from "react";
+import { useAccount } from "wagmi";
+import { useAuctionMeta } from "../hooks/useAuctionMeta";
 import { useSubmitOrder } from "../hooks/useSubmitOrder";
+import { postOrderReveal } from "../lib/agentApi";
+import { IS_LIVE } from "../lib/config";
+import { txUrl } from "../lib/format";
 import { useToast } from "./ToastProvider";
-import type { OrderSide } from "../types";
+import type { OrderRevealWire, OrderSide, SealResult } from "../types";
 
 export function SealOrderPanel() {
   const [side, setSide] = useState<OrderSide>("buy");
@@ -9,11 +14,56 @@ export function SealOrderPanel() {
   const [limit, setLimit] = useState("");
   const submit = useSubmitOrder();
   const { push } = useToast();
+  const { isConnected } = useAccount();
+  const { data: meta } = useAuctionMeta();
+
+  const baseSymbol = meta?.base.symbol ?? "—";
+  const quoteSymbol = meta?.quote.symbol ?? "—";
 
   const amountNum = Number(amount);
   const limitNum = Number(limit);
+  const needsWallet = IS_LIVE && !isConnected;
   const valid =
-    amountNum > 0 && limitNum > 0 && !submit.isPending;
+    amountNum > 0 && limitNum > 0 && !submit.isPending && !needsWallet;
+
+  function retryReveal(reveal: OrderRevealWire) {
+    postOrderReveal(reveal)
+      .then(() =>
+        push({
+          variant: "settle",
+          title: "Reveal delivered",
+          message: "The agent has the order details.",
+        }),
+      )
+      .catch(() =>
+        push({
+          variant: "alert",
+          title: "Reveal still not delivered",
+          message: "The agent API is unreachable. Retry when it is back.",
+          action: { label: "Retry", onClick: () => retryReveal(reveal) },
+        }),
+      );
+  }
+
+  function notifySealed(res: SealResult) {
+    push({
+      variant: "settle",
+      title: "Order sealed",
+      message: `${res.side} ${amountNum} ${baseSymbol} committed to the next batch`,
+      href: res.txHash ? txUrl(res.txHash) : undefined,
+      hrefLabel: "view tx ↗",
+    });
+    if (!res.revealDelivered && res.reveal) {
+      const reveal = res.reveal;
+      push({
+        variant: "alert",
+        title: "Reveal not delivered",
+        message:
+          "Sealed on-chain, but the agent has not received the order details. It stays unmatched until it does.",
+        action: { label: "Retry", onClick: () => retryReveal(reveal) },
+      });
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -24,18 +74,15 @@ export function SealOrderPanel() {
         amount: amountNum,
         limitPrice: limitNum,
       });
-      push({
-        variant: "settle",
-        title: "Order sealed",
-        message: `${side} ${amountNum} WBOT committed as ${res.commitment.slice(0, 10)}…`,
-      });
+      notifySealed(res);
       setAmount("");
       setLimit("");
-    } catch {
+    } catch (error) {
+      const err = error as { shortMessage?: string; message?: string };
       push({
         variant: "alert",
         title: "Order not sealed",
-        message: "The commitment did not reach the pool. Try again.",
+        message: (err.shortMessage ?? err.message ?? "Unknown error").slice(0, 140),
       });
     }
   }
@@ -66,7 +113,7 @@ export function SealOrderPanel() {
                   active ? activeClass : "text-muted hover:text-text"
                 }`}
               >
-                {s}
+                {s} {baseSymbol !== "—" ? baseSymbol : ""}
               </button>
             );
           })}
@@ -74,14 +121,14 @@ export function SealOrderPanel() {
 
         <Field
           label="Amount"
-          suffix="WBOT"
+          suffix={baseSymbol}
           value={amount}
           onChange={setAmount}
           placeholder="0.00"
         />
         <Field
           label="Limit price"
-          suffix="USDC"
+          suffix={quoteSymbol}
           value={limit}
           onChange={setLimit}
           placeholder="0.0000"
@@ -94,6 +141,11 @@ export function SealOrderPanel() {
         >
           {submit.isPending ? "Sealing…" : "Seal order"}
         </button>
+        {needsWallet && (
+          <p className="font-mono text-[0.75rem] text-faint">
+            Connect a wallet to seal orders.
+          </p>
+        )}
       </form>
     </section>
   );

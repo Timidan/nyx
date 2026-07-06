@@ -1,4 +1,6 @@
 import { Header } from "./components/Header";
+import { AUCTION_ADDRESS, IS_LIVE } from "./lib/config";
+import { truncateHash } from "./lib/format";
 import { ClearingPulse } from "./components/ClearingPulse";
 import { SealOrderPanel } from "./components/SealOrderPanel";
 import { AgentStatusPanel } from "./components/AgentStatusPanel";
@@ -25,7 +27,9 @@ export default function App() {
       </main>
 
       <footer className="mx-auto max-w-6xl px-5 pb-10 pt-2 font-mono text-[0.75rem] text-faint">
-        Nyx · BOT Chain testnet · chain 968 · mock data until contracts wire in
+        {IS_LIVE
+          ? `Nyx · BOT Chain testnet · chain 968 · auction ${truncateHash(AUCTION_ADDRESS!)}`
+          : "Nyx · BOT Chain testnet · chain 968 · simulated data until deploy"}
       </footer>
     </div>
   );

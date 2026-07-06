@@ -1,49 +1,63 @@
 @import "tailwindcss";
 
 /*
-  Nyx design system — plan section 6.
-  Tailwind v4 maps @theme custom properties onto utility classes:
+  Nyx design system — "Win95, but designed in 2026" (user pivot, supersedes
+  the night-observatory direction). Light warm-chrome ground, white panel
+  windows with 2px black borders and hard offset shadows, navy title bars,
+  teal/green/red accents, square corners everywhere.
+
+  Token NAMES are unchanged from the first theme so existing utility classes
+  keep working — only the values were swapped:
     --color-ground  -> bg-ground / text-ground / border-ground
-    --font-display  -> font-display
-    --radius-panel  -> rounded-panel
+    --font-pixel    -> font-pixel (wordmark + window title bars only)
+    --shadow-win    -> shadow-win (window chrome hard shadow)
 */
 @theme {
   /* ground + surfaces */
-  --color-ground: #0b1020; /* deep midnight, never pure black */
-  --color-surface: #141b2e;
-  --color-surface-2: #1c2540;
-  --color-border: #263258;
+  --color-ground: #d8d5ce; /* warm chrome gray, never pure white page */
+  --color-surface: #fdfdfb; /* window body */
+  --color-surface-2: #f0eee6;
+  --color-border: #0a0a0a; /* hard black lines */
 
   /* text */
-  --color-text: #e8ecf6;
-  --color-muted: #8a97b4;
-  --color-faint: #55628a;
+  --color-text: #131313;
+  --color-muted: #57534a;
+  --color-faint: #857f72;
 
-  /* signal: cool = perceiving / deciding (live) */
-  --color-signal: #46d0d9;
-  --color-signal-dim: #2a7a80;
+  /* signal: modernized Win95 teal = perceiving / deciding / live */
+  --color-signal: #0e8a84;
+  --color-signal-dim: #0b6b66;
 
-  /* settle: warm = acted / settled (done) */
-  --color-settle: #f5a65b;
-  --color-settle-dim: #7a5230;
+  /* settle: classic green = settled / success */
+  --color-settle: #0a7d2b;
+  --color-settle-dim: #07571e;
 
-  /* alert: nullifier burn / failure, used sparingly */
-  --color-alert: #e5687a;
+  /* alert: failure, used sparingly */
+  --color-alert: #c42b2b;
+
+  /* win95 chrome */
+  --color-navy: #1418a8; /* modernized #000080 — title bars, primary action */
+  --color-note: #ffde59; /* notification chip yellow */
 
   /* typography */
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-pixel: "Silkscreen", "Space Grotesk", ui-sans-serif, sans-serif;
 
-  /* radii */
-  --radius-input: 4px;
-  --radius-card: 6px;
-  --radius-panel: 8px;
+  /* radii: sharp corners everywhere */
+  --radius-input: 0px;
+  --radius-card: 0px;
+  --radius-panel: 0px;
+
+  /* hard offset shadows — the thick shadow boxes */
+  --shadow-win: 6px 6px 0 0 #0a0a0a;
+  --shadow-tip: 4px 4px 0 0 #0a0a0a;
 }
 
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
   body {
     margin: 0;
@@ -53,6 +67,47 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background-color: var(--color-navy);
+    color: #ffffff;
+  }
+  /* visible a11y focus ring; the authentic inner dotted box lives on .btn95 */
+  :focus-visible {
+    outline: 2px solid var(--color-navy);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Raised Win95 button: 2px black border + hard shadow; pressing shoves it
+     into the page. Disabled buttons lie flat. */
+  .btn95 {
+    position: relative;
+    border: 2px solid var(--color-border);
+    box-shadow: 4px 4px 0 0 var(--color-border);
+  }
+  .btn95:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 0 var(--color-border);
+  }
+  .btn95:disabled {
+    box-shadow: none;
+  }
+  /* authentic 1px dotted focus box inside the button (plus the global ring) */
+  .btn95:focus-visible::after {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    border: 1px dotted var(--color-border);
+    pointer-events: none;
+  }
+
+  /* Sunken statusbar segment / input well. */
+  .sunken95 {
+    border: 2px solid var(--color-border);
+    background: var(--color-surface);
+    box-shadow: inset 2px 2px 0 0 rgb(10 10 10 / 0.22);
   }
 }
 

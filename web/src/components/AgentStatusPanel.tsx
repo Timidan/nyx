@@ -1,6 +1,7 @@
 import { useAgentState } from "../hooks/useAgentState";
 import { reasonWords } from "../lib/reasons";
 import { fmtToken, fmtUsd } from "../lib/format";
+import { Window } from "./Window";
 import type { AgentStatus } from "../types";
 
 const SUBTEXT: Record<AgentStatus, string> = {
@@ -19,18 +20,14 @@ export function AgentStatusPanel() {
       : `Waiting: depth ${data.depth} of ${data.depthThreshold}`;
 
   return (
-    <section
-      className="rounded-panel border border-border bg-surface p-5"
-      // 1px top border in --signal-dim while the agent is live (plan recipe).
-      style={data.live ? { borderTopColor: "#2A7A80" } : undefined}
-    >
+    <Window title="agent-monitor.exe">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="font-display text-[1.25rem] font-semibold text-text">
           Agent
         </h2>
         {data.live ? (
           <span className="flex items-center gap-1.5 font-mono text-[0.6875rem] uppercase tracking-wider text-signal">
-            <span className="h-1.5 w-1.5 rounded-full bg-signal" />
+            <span className="h-1.5 w-1.5 border border-border bg-signal" />
             live
           </span>
         ) : (
@@ -40,7 +37,7 @@ export function AgentStatusPanel() {
         )}
       </div>
 
-      <div className="rounded-card border border-border bg-ground p-3">
+      <div className="sunken95 p-3">
         <div className="font-mono text-[0.8125rem] text-text">{headline}</div>
         <div className="mt-1 font-mono text-[0.75rem] text-faint">
           {SUBTEXT[data.status]}
@@ -84,7 +81,7 @@ export function AgentStatusPanel() {
           valueClass={data.dexPrice === null ? "text-faint" : "text-settle"}
         />
       </dl>
-    </section>
+    </Window>
   );
 }
 
@@ -106,11 +103,8 @@ function Meter({
           {value}
         </dd>
       </div>
-      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-ground">
-        <div
-          className="h-full rounded-full bg-signal-dim"
-          style={{ width: `${pct}%` }}
-        />
+      <div className="mt-1.5 h-2 overflow-hidden border border-border bg-ground">
+        <div className="h-full bg-signal-dim" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );

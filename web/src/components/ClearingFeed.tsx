@@ -2,13 +2,14 @@ import type { ReactNode } from "react";
 import { useBatches } from "../hooks/useBatches";
 import { reasonWords } from "../lib/reasons";
 import { truncateHash, txUrl } from "../lib/format";
+import { Window } from "./Window";
 
 export function ClearingFeed() {
   const { data: batches = [] } = useBatches();
   const rows = [...batches].reverse().slice(0, 24);
 
   return (
-    <section className="rounded-card border border-border bg-surface p-5">
+    <Window title="clearing-feed.exe">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="font-display text-[1.25rem] font-semibold text-text">
           Clearing feed
@@ -21,7 +22,7 @@ export function ClearingFeed() {
       <div className="overflow-x-auto">
         <table className="w-full min-w-[36rem] border-collapse font-mono text-[0.8125rem] tabular-nums">
           <thead>
-            <tr className="border-b border-border text-left text-faint">
+            <tr className="border-b-2 border-border text-left text-faint">
               <Th>batch</Th>
               <Th>matches</Th>
               <Th>clearing</Th>
@@ -40,7 +41,7 @@ export function ClearingFeed() {
             {rows.map((b) => (
               <tr
                 key={b.batchId}
-                className="border-b border-border/50 last:border-0 hover:bg-surface-2/40"
+                className="border-b border-ground last:border-0 hover:bg-ground/50"
               >
                 <td className="py-2 pr-3 text-text">#{b.batchId}</td>
                 <td className="py-2 pr-3 text-text">{b.matchCount}</td>
@@ -53,7 +54,7 @@ export function ClearingFeed() {
                     href={txUrl(b.txHash)}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-signal hover:underline"
+                    className="text-navy underline hover:no-underline"
                   >
                     {truncateHash(b.txHash)}
                   </a>
@@ -63,7 +64,7 @@ export function ClearingFeed() {
           </tbody>
         </table>
       </div>
-    </section>
+    </Window>
   );
 }
 

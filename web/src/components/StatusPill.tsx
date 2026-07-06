@@ -2,27 +2,21 @@ import { useAgentState } from "../hooks/useAgentState";
 import { reasonWords } from "../lib/reasons";
 import type { AgentStatus } from "../types";
 
-const STATE_META: Record<
-  AgentStatus,
-  { label: string; dot: string; text: string; ring: string }
-> = {
+const STATE_META: Record<AgentStatus, { label: string; dot: string; text: string }> = {
   watching: {
     label: "Watching",
     dot: "bg-muted",
     text: "text-muted",
-    ring: "border-border",
   },
   deciding: {
     label: "Deciding",
     dot: "bg-signal",
     text: "text-signal",
-    ring: "border-signal-dim",
   },
   settling: {
     label: "Settling",
     dot: "bg-settle",
     text: "text-settle",
-    ring: "border-settle-dim",
   },
 };
 
@@ -37,14 +31,14 @@ export function StatusPill() {
       : "watching the book";
 
   return (
-    <div
-      className={`flex items-center gap-2.5 rounded-input border ${meta.ring} bg-surface/70 px-3 py-1.5`}
-    >
-      <span className="relative flex h-2 w-2">
+    <div className="sunken95 flex items-center gap-2.5 px-3 py-1.5">
+      <span className="relative flex h-2.5 w-2.5">
         {data.status === "deciding" && (
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal opacity-60 motion-reduce:hidden" />
+          <span className="absolute inline-flex h-full w-full animate-ping bg-signal opacity-60 motion-reduce:hidden" />
         )}
-        <span className={`relative inline-flex h-2 w-2 rounded-full ${meta.dot}`} />
+        <span
+          className={`relative inline-flex h-2.5 w-2.5 border border-border ${meta.dot}`}
+        />
       </span>
       <span className={`font-mono text-[0.75rem] font-medium ${meta.text}`}>
         {meta.label}

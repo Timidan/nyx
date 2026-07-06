@@ -6,6 +6,7 @@ import { postOrderReveal } from "../lib/agentApi";
 import { IS_LIVE } from "../lib/config";
 import { txUrl } from "../lib/format";
 import { useToast } from "./ToastProvider";
+import { Window } from "./Window";
 import type { OrderRevealWire, OrderSide, SealResult } from "../types";
 
 export function SealOrderPanel() {
@@ -88,7 +89,7 @@ export function SealOrderPanel() {
   }
 
   return (
-    <section className="rounded-card border border-border bg-surface p-5">
+    <Window title="seal-order.exe">
       <h2 className="font-display text-[1.25rem] font-semibold text-text">
         Seal order
       </h2>
@@ -98,18 +99,18 @@ export function SealOrderPanel() {
       </p>
 
       <form onSubmit={onSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-1 rounded-input border border-border bg-ground p-1">
+        <div className="grid grid-cols-2 gap-1 border-2 border-border bg-ground p-1">
           {(["buy", "sell"] as OrderSide[]).map((s) => {
             const active = side === s;
             const activeClass =
-              s === "buy" ? "bg-signal text-ground" : "bg-settle text-ground";
+              s === "buy" ? "bg-navy text-white" : "bg-settle text-white";
             return (
               <button
                 key={s}
                 type="button"
                 onClick={() => setSide(s)}
                 aria-pressed={active}
-                className={`rounded-[3px] px-3 py-1.5 font-mono text-[0.8125rem] font-medium capitalize transition-colors ${
+                className={`px-3 py-1.5 font-mono text-[0.8125rem] font-medium capitalize transition-colors ${
                   active ? activeClass : "text-muted hover:text-text"
                 }`}
               >
@@ -137,7 +138,7 @@ export function SealOrderPanel() {
         <button
           type="submit"
           disabled={!valid}
-          className="w-full rounded-input bg-signal px-4 py-2.5 font-medium text-ground transition hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn95 w-full bg-navy px-4 py-2.5 font-medium text-white disabled:cursor-not-allowed disabled:bg-[#C9C5BB] disabled:text-[#7A7568]"
         >
           {submit.isPending ? "Sealing…" : "Seal order"}
         </button>
@@ -147,7 +148,7 @@ export function SealOrderPanel() {
           </p>
         )}
       </form>
-    </section>
+    </Window>
   );
 }
 
@@ -169,7 +170,7 @@ function Field({
       <span className="mb-1.5 block font-mono text-[0.6875rem] uppercase tracking-wider text-faint">
         {label}
       </span>
-      <div className="flex items-center rounded-input border border-border bg-ground focus-within:border-signal">
+      <div className="sunken95 flex items-center focus-within:border-navy">
         <input
           inputMode="decimal"
           value={value}

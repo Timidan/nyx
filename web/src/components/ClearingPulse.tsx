@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useBatches } from "../hooks/useBatches";
 import { reasonWords } from "../lib/reasons";
 import { txUrl } from "../lib/format";
+import { Window } from "./Window";
 import type { Batch } from "../types";
 
 // How many recent bars the live window shows. Older batches scroll off the left
@@ -10,8 +11,9 @@ const MAX_BARS = 56;
 
 /**
  * The clearing pulse — the signature element. A live horizontal timeline where
- * each settled batch is one bar, height ∝ match count, filled --settle. A new
- * settlement grows in with the plan's --pulse curve; every other bar stays put.
+ * each settled batch is one bar, height ∝ match count, teal fill with a hard
+ * black border (Win95 reskin). A new settlement grows in with the 220ms pulse
+ * curve; every other bar stays put.
  */
 export function ClearingPulse() {
   const { data: batches = [] } = useBatches();
@@ -32,7 +34,7 @@ export function ClearingPulse() {
   });
 
   return (
-    <section className="rounded-panel border border-border bg-surface p-5">
+    <Window title="clearing-pulse.exe">
       <div className="mb-4 flex items-start justify-between">
         <div>
           <h2 className="font-display text-[1.75rem] font-semibold leading-none text-text">
@@ -64,7 +66,7 @@ export function ClearingPulse() {
           ))
         )}
       </div>
-    </section>
+    </Window>
   );
 }
 
@@ -83,13 +85,13 @@ function PulseBar({
   return (
     <div className="group/bar relative flex h-full flex-1 items-end">
       <div
-        className={`w-full rounded-t-[2px] bg-settle/85 transition-colors group-hover/bar:bg-settle ${
+        className={`w-full border-2 border-border bg-signal transition-colors group-hover/bar:bg-navy ${
           isNew ? "pulse-grow" : ""
         }`}
         style={{ height: `${heightPct}%` }}
       />
 
-      <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-56 -translate-x-1/2 rounded-card border border-border bg-surface-2 p-3 text-left shadow-xl group-hover/bar:block">
+      <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-56 -translate-x-1/2 border-2 border-border bg-surface p-3 text-left shadow-tip group-hover/bar:block">
         <Line label="batch" value={`#${batch.batchId}`} />
         <Line
           label="clearing price"
@@ -104,7 +106,7 @@ function PulseBar({
           href={txUrl(batch.txHash)}
           target="_blank"
           rel="noreferrer"
-          className="pointer-events-auto mt-2 inline-block font-mono text-[0.75rem] text-signal hover:underline"
+          className="pointer-events-auto mt-2 inline-block font-mono text-[0.75rem] text-navy underline hover:no-underline"
         >
           view tx ↗
         </a>

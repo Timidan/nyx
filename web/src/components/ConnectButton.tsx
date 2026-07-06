@@ -21,8 +21,7 @@ export function ConnectButton() {
   const discovered = connectors.filter((c) => c.id !== "injected");
   const usable = discovered.length > 0 ? discovered : [...connectors];
 
-  const base =
-    "rounded-input border border-border bg-surface px-4 py-2 text-[0.875rem] text-text hover:border-signal";
+  const base = "btn95 bg-surface px-4 py-2 text-[0.875rem] text-text";
 
   if (isConnected && address) {
     return (
@@ -81,13 +80,13 @@ export function ConnectButton() {
         {isPending ? "Connecting…" : "Connect wallet"}
       </button>
       {showPicker && (
-        <div className="absolute right-0 top-full z-20 mt-2 min-w-44 rounded-card border border-border bg-surface-2 p-1 shadow-lg">
+        <div className="absolute right-0 top-full z-20 mt-2 min-w-44 border-2 border-border bg-surface shadow-win">
           {usable.map((connector) => (
             <button
               key={connector.uid}
               type="button"
               onClick={() => void connectWith(connector)}
-              className="block w-full rounded-input px-3 py-2 text-left text-[0.875rem] text-text hover:bg-surface"
+              className="block w-full px-3 py-2 text-left text-[0.875rem] text-text hover:bg-navy hover:text-white"
             >
               {connector.name}
             </button>

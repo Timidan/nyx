@@ -14,7 +14,7 @@ interface Toast {
   variant: ToastVariant;
   title: string;
   message?: string;
-  /** external link (e.g. explorer tx), rendered in signal color */
+  /** external link (e.g. explorer tx), rendered as a navy underlined link */
   href?: string;
   hrefLabel?: string;
   /** action button (e.g. retry); action toasts stick until dismissed */
@@ -36,11 +36,19 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
-const ACCENT: Record<ToastVariant, { bar: string; title: string }> = {
-  muted: { bar: "bg-muted", title: "text-text" },
-  settle: { bar: "bg-settle", title: "text-settle" },
-  alert: { bar: "bg-alert", title: "text-alert" },
+const ACCENT: Record<ToastVariant, { title: string }> = {
+  muted: { title: "text-text" },
+  settle: { title: "text-settle" },
+  alert: { title: "text-alert" },
 };
+
+/** "Order sealed" -> "order-sealed" for the message-box title bar. */
+function exeName(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -71,10 +79,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           return (
             <div
               key={t.id}
-              className="pointer-events-auto flex overflow-hidden rounded-card border border-border bg-surface-2 shadow-xl"
+              className="pointer-events-auto border-2 border-border bg-surface shadow-win"
             >
-              <span className={`w-1 shrink-0 ${accent.bar}`} />
-              <div className="min-w-0 flex-1 px-4 py-3">
+              <div className="flex items-center justify-between gap-3 border-b-2 border-border bg-navy px-2.5 py-1">
+                <span
+                  aria-hidden="true"
+                  className="font-pixel text-[0.625rem] leading-none text-white"
+                >
+                  {exeName(t.title)}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  onClick={() => dismiss(t.id)}
+                  className="grid h-3.5 w-3.5 place-items-center border border-border bg-surface text-[9px] leading-none text-text"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="min-w-0 px-4 py-3">
                 <div className={`text-[0.875rem] font-medium ${accent.title}`}>
                   {t.title}
                 </div>
@@ -90,7 +113,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                         href={t.href}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-mono text-[0.75rem] text-signal hover:underline"
+                        className="font-mono text-[0.75rem] text-navy underline hover:no-underline"
                       >
                         {t.hrefLabel ?? "view tx ↗"}
                       </a>
@@ -102,7 +125,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                           dismiss(t.id);
                           t.action!.onClick();
                         }}
-                        className="rounded-input border border-border bg-surface px-2.5 py-1 text-[0.75rem] text-text hover:border-signal"
+                        className="btn95 bg-surface px-2.5 py-1 text-[0.75rem] text-text"
                       >
                         {t.action.label}
                       </button>
@@ -110,16 +133,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   </div>
                 )}
               </div>
-              {(t.sticky || t.action) && (
-                <button
-                  type="button"
-                  aria-label="Dismiss"
-                  onClick={() => dismiss(t.id)}
-                  className="self-start px-2.5 py-2 text-muted hover:text-text"
-                >
-                  ×
-                </button>
-              )}
             </div>
           );
         })}

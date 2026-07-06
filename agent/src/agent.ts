@@ -7,6 +7,7 @@ import {
   makeWalletClient,
   readAuctionSnapshot,
   readDexSnapshot,
+  readLatestBatchSettledReason,
   readSubmittedStatuses,
   sendSettleWithGasBump,
   simulateSettle,
@@ -22,6 +23,7 @@ export class NyxAgent {
   private referencePriceX18: bigint | null = null;
   private dexSnapshot: DexSnapshot | null = null;
   private lastDecision: Decision | null = null;
+  private lastReason: number | null = null;
   private lastTx: Hex32 | null = null;
   private lastClearAt = Math.floor(Date.now() / 1000);
   private state = "starting";
@@ -39,7 +41,11 @@ export class NyxAgent {
 
   async recover(): Promise<void> {
     this.state = "recovering";
-    const statuses = await readSubmittedStatuses(this.publicClient, this.config);
+    const [statuses, lastReason] = await Promise.all([
+      readSubmittedStatuses(this.publicClient, this.config),
+      readLatestBatchSettledReason(this.publicClient, this.config),
+    ]);
+    this.lastReason = lastReason;
     for (const entry of this.store.all()) {
       const onchainStatus = statuses.get(entry.commitment);
       if (onchainStatus === "settled" || onchainStatus === "cancelled") {
@@ -98,13 +104,21 @@ export class NyxAgent {
   }
 
   getStatus(): AgentStatus {
+    const queue = this.queue();
+    const depth = queue.length;
     return {
       currentBatchId: this.currentBatchId?.toString() ?? null,
       reasonCandidate:
         this.lastDecision?.reason == null
           ? null
           : { code: this.lastDecision.reason, label: reasonLabels[this.lastDecision.reason] },
-      queueDepth: this.queue().length,
+      queueDepth: depth,
+      lastReason: this.lastReason,
+      depth,
+      depthMin: this.config.depthMin,
+      notionalWaiting: this.notionalWaitingX18(queue).toString(),
+      notionalMax: this.config.notionalMaxX18.toString(),
+      notionalUnit: "token1X18",
       lastTx: this.lastTx,
       referencePriceX18: this.referencePriceX18?.toString() ?? null,
       secondsSinceLastClear: Math.max(0, Math.floor(Date.now() / 1000) - this.lastClearAt),
@@ -225,6 +239,7 @@ export class NyxAgent {
     await this.publicClient.waitForTransactionReceipt({ hash: txHash });
     await Promise.all(settlement.matches.map((match) => this.store.mark(match.commitment, "settled")));
     this.lastClearAt = Math.floor(Date.now() / 1000);
+    this.lastReason = decision.reason;
     this.state = "watching";
   }
 
@@ -233,6 +248,20 @@ export class NyxAgent {
       .all()
       .filter((entry) => entry.status === "queued")
       .filter((entry) => this.currentBatchId == null || entry.order.batchId === this.currentBatchId);
+  }
+
+  private notionalWaitingX18(queue: QueuedOrder[]): bigint {
+    if (!this.dexSnapshot || this.referencePriceX18 == null) return 0n;
+    return queue.reduce((sum, entry) => {
+      if (sameAddress(entry.order.sellToken, this.config.wbot)) {
+        const sellX18 = toX18(entry.order.sellAmount, this.dexSnapshot!.token0.decimals);
+        return sum + (sellX18 * this.referencePriceX18!) / 1_000000000000000000n;
+      }
+      if (sameAddress(entry.order.sellToken, this.config.bousdt)) {
+        return sum + toX18(entry.order.sellAmount, this.dexSnapshot!.token1.decimals);
+      }
+      return sum;
+    }, 0n);
   }
 
   private printDryRun(decision: Decision): void {

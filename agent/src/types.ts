@@ -41,6 +41,12 @@ export interface AgentStatus {
   currentBatchId: string | null;
   reasonCandidate: { code: number; label: string } | null;
   queueDepth: number;
+  lastReason: number | null;
+  depth: number;
+  depthMin: number;
+  notionalWaiting: string;
+  notionalMax: string;
+  notionalUnit: string;
   lastTx: Hex32 | null;
   referencePriceX18: string | null;
   secondsSinceLastClear: number;

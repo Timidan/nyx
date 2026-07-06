@@ -138,9 +138,29 @@ configurable via env.
 POST /orders   — body: OrderReveal JSON (preimage), sent after the frontend
                  submits the commitment on-chain
 GET  /status   — { currentBatchId, reasonCandidate, queueDepth, lastTx,
-                 referencePriceX18, secondsSinceLastClear, agentState }
+                 referencePriceX18, secondsSinceLastClear, agentState,
+                 lastReason, depth, depthMin, notionalWaiting, notionalMax,
+                 notionalUnit }
 GET  /health   — process + RPC health
 ```
+
+`/status` fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `currentBatchId` | `string \| null` | Current on-chain batch id as a decimal string, or `null` before the agent has a batch source. |
+| `reasonCandidate` | `{ code: number, label: string } \| null` | Current local settlement trigger candidate from policy evaluation. |
+| `queueDepth` | `number` | Current matched-queue depth. Kept for existing frontend consumers. |
+| `lastTx` | `string \| null` | Last settlement transaction hash sent by this agent process. |
+| `referencePriceX18` | `string \| null` | Current BOUSDT per WBOT reference price in X18. |
+| `secondsSinceLastClear` | `number` | Seconds since the agent last confirmed a settlement it sent. |
+| `agentState` | `string` | Current local agent state label. |
+| `lastReason` | `number \| null` | Reason code from the most recent `BatchSettled` event the agent knows about, or `null` before any known settlement. |
+| `depth` | `number` | Alias for the current matched-queue depth. |
+| `depthMin` | `number` | Configured `DEPTH_MIN` threshold. |
+| `notionalWaiting` | `string` | Current queued escrow notional as a decimal integer in `notionalUnit`. |
+| `notionalMax` | `string` | Configured notional threshold as a decimal integer in `notionalUnit`. |
+| `notionalUnit` | `string` | `token1X18`: token1-normalized X18 units. In the primary deployment, token1 is BOUSDT. |
 
 ## Deployment artifacts (fill in when deployed)
 

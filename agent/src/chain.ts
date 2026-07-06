@@ -153,6 +153,32 @@ export async function readSubmittedStatuses(
   return statuses;
 }
 
+export async function readLatestBatchSettledReason(
+  publicClient: PublicClient,
+  config: AgentConfig,
+): Promise<number | null> {
+  if (!config.auctionAddress) return null;
+
+  const settled = await publicClient.getContractEvents({
+    address: config.auctionAddress,
+    abi: nyxBatchAuctionAbi,
+    eventName: "BatchSettled",
+    fromBlock: config.fromBlock,
+    toBlock: "latest",
+  });
+
+  const latest = settled.reduce<(typeof settled)[number] | null>((best, log) => {
+    if (!best) return log;
+    const bestBlock = best.blockNumber ?? 0n;
+    const logBlock = log.blockNumber ?? 0n;
+    if (logBlock > bestBlock) return log;
+    if (logBlock < bestBlock) return best;
+    return BigInt(log.logIndex ?? 0) > BigInt(best.logIndex ?? 0) ? log : best;
+  }, null);
+
+  return latest?.args.reason == null ? null : Number(latest.args.reason);
+}
+
 export async function simulateSettle(
   publicClient: PublicClient,
   config: AgentConfig,

@@ -162,6 +162,21 @@ GET  /health   — process + RPC health
 | `notionalMax` | `string` | Configured notional threshold as a decimal integer in `notionalUnit`. |
 | `notionalUnit` | `string` | `token1X18`: token1-normalized X18 units. In the primary deployment, token1 is BOUSDT. |
 
+Additive v3 fields (frozen Jul 6 late — decision trace):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `decision.side0X18` | `string` | Queued sell-side notional for token0 (WBOT), token1X18 units. |
+| `decision.side1X18` | `string` | Queued sell-side notional for token1 (BOUSDT), token1X18 units. |
+| `decision.imbalanceBps` | `number \| null` | Current side imbalance in bps (null when either side is empty). |
+| `decision.dexSpreadOk` | `boolean` | Whether any queued order clears favorably vs the DEX reference at the configured spread. |
+| `config.imbalanceBps` | `number` | Imbalance trigger threshold (bps). |
+| `config.maxIntervalSeconds` | `number` | Liveness backstop interval. |
+| `config.dexSpreadBps` | `number` | Favorable-spread trigger threshold (bps). |
+| `config.maxClearingDeviationBps` | `number` | Max clearing-price deviation vs reference (bps). |
+
+All optional for consumers; older agents may omit them.
+
 ## Deployment artifacts (deployed Jul 6)
 
 | Item | Value |

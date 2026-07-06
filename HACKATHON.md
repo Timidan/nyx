@@ -71,7 +71,7 @@ Rules-diff findings vs what we built (Jul 6 late):
 
 | Deliverable | Constraint | Status | Link |
 |---|---|---|---|
-| Deployed contracts on 968 | Real verifiable txs | ☐ | |
+| Deployed contracts on 968 | Real verifiable txs | ✅ | `0x4aD7971C…4777`; settlements incl. `0x6a8a55dd…4683`, `0xa717…2bd2` |
 | Public GitHub repo | Public, README with setup | ☐ | |
 | Demo video | 2–3 min, shows explorer + agent self-triggering | ☐ | |
 | X tweet | Tags @BOTChain_ai, all required content | ☐ | |
@@ -118,5 +118,6 @@ Rules-diff findings vs what we built (Jul 6 late):
 
 - **Crossed ZK codebase does not exist locally or on GitHub** — plan §2 "carries over unchanged" is void.
 - **Scope decision (Jul 6, post-ideation): commit-reveal sealed-batch auction, no ZK.** Recorded with rationale in `docs/INTERFACES.md`.
-- Jul 6 evening: contracts + agent **built and tested** (7/7 forge tests, agent dry-run against live RPC read reference price 9.6977 BOUSDT/WBOT). Frontend shell built and verified; live wiring in progress. **Deployment blocked solely on faucet funding** (both wallets 0 BOT). Deploy runbook: `docs/DEPLOY.md`.
+- Jul 6 evening: contracts + agent built and tested (7/7 forge tests). **Deployed to 968 same day** once faucet funds landed; agent settling autonomously since.
+- Jul 6 night: 7 rounds settled across 4 distinct reason codes; full UI E2E completed with a real third-party wallet (Rabby) — user order sealed via UI, matched, settled in round #6 (`0xa717…2bd2`). Two real wallet-flow bugs found and fixed via live browser testing (EIP-6963 multi-wallet connect; wallet-chain detection). UI reskinned to modernized Win95 per user direction, copy humanized.
 - Bounty note (doc gaps to write up): the published SwapRouter is a Uniswap **V3** SwapRouter though the DEX presents as V2 pairs (`getAmountsOut` reverts); BOUSDT mint is role-restricted; faucet has no API. Repro + fixes → PR bounty lane.

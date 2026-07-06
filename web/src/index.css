@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+/*
+  Nyx design system — plan section 6.
+  Tailwind v4 maps @theme custom properties onto utility classes:
+    --color-ground  -> bg-ground / text-ground / border-ground
+    --font-display  -> font-display
+    --radius-panel  -> rounded-panel
+*/
+@theme {
+  /* ground + surfaces */
+  --color-ground: #0b1020; /* deep midnight, never pure black */
+  --color-surface: #141b2e;
+  --color-surface-2: #1c2540;
+  --color-border: #263258;
+
+  /* text */
+  --color-text: #e8ecf6;
+  --color-muted: #8a97b4;
+  --color-faint: #55628a;
+
+  /* signal: cool = perceiving / deciding (live) */
+  --color-signal: #46d0d9;
+  --color-signal-dim: #2a7a80;
+
+  /* settle: warm = acted / settled (done) */
+  --color-settle: #f5a65b;
+  --color-settle-dim: #7a5230;
+
+  /* alert: nullifier burn / failure, used sparingly */
+  --color-alert: #e5687a;
+
+  /* typography */
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* radii */
+  --radius-input: 4px;
+  --radius-card: 6px;
+  --radius-panel: 8px;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--color-ground);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+/*
+  The one orchestrated motion moment: the clearing pulse.
+  Each newly settled bar grows in with the plan's --pulse curve.
+  Everything else on the page stays still.
+*/
+@keyframes pulse-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.pulse-grow {
+  transform-origin: bottom;
+  animation: pulse-grow 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Respect reduced motion: drop the grow, keep the color/fill. */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-grow {
+    animation: none;
+  }
+}

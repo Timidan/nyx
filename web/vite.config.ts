@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     // dedicated port — must match the agent's CORS_ORIGIN
-    port: 5180,
+    port: 5190,
     strictPort: true,
     fs: {
       // allow importing ../shared/abi/NyxBatchAuction.json (forge artifact)

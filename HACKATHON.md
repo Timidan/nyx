@@ -103,4 +103,7 @@
 
 ## Build-state notes (kept honest)
 
-- **Crossed ZK codebase does not exist locally or on GitHub** — plan §2 "carries over unchanged" is void. Scope decision recorded after Codex ideation below.
+- **Crossed ZK codebase does not exist locally or on GitHub** — plan §2 "carries over unchanged" is void.
+- **Scope decision (Jul 6, post-ideation): commit-reveal sealed-batch auction, no ZK.** Recorded with rationale in `docs/INTERFACES.md`.
+- Jul 6 evening: contracts + agent **built and tested** (7/7 forge tests, agent dry-run against live RPC read reference price 9.6977 BOUSDT/WBOT). Frontend shell built and verified; live wiring in progress. **Deployment blocked solely on faucet funding** (both wallets 0 BOT). Deploy runbook: `docs/DEPLOY.md`.
+- Bounty note (doc gaps to write up): the published SwapRouter is a Uniswap **V3** SwapRouter though the DEX presents as V2 pairs (`getAmountsOut` reverts); BOUSDT mint is role-restricted; faucet has no API. Repro + fixes → PR bounty lane.

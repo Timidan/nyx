@@ -4,7 +4,9 @@ import type { OrderRevealWire } from "../types";
 // Frontend <-> agent local HTTP API (docs/INTERFACES.md "Agent local API").
 // GET /status, POST /orders. GET /health exists but the UI doesn't need it.
 
-/** Shape of GET /status — frozen in INTERFACES.md, mirrors agent/src/types.ts. */
+/** Shape of GET /status — frozen in INTERFACES.md, mirrors agent/src/types.ts.
+ *  The second block is additive (Jul 6 update); every field there stays
+ *  optional so the UI keeps working against an older agent build. */
 export interface AgentApiStatus {
   currentBatchId: string | null;
   reasonCandidate: { code: number; label: string } | null;
@@ -13,6 +15,18 @@ export interface AgentApiStatus {
   referencePriceX18: string | null;
   secondsSinceLastClear: number;
   agentState: string;
+  /** reason code of the most recent BatchSettled the agent knows about */
+  lastReason?: number | null;
+  /** alias for queueDepth */
+  depth?: number;
+  /** configured DEPTH_MIN threshold */
+  depthMin?: number;
+  /** queued escrow notional, decimal integer in notionalUnit */
+  notionalWaiting?: string;
+  /** configured notional threshold, decimal integer in notionalUnit */
+  notionalMax?: string;
+  /** "token1X18": token1-normalized X18 units */
+  notionalUnit?: string;
 }
 
 export async function fetchAgentStatus(): Promise<AgentApiStatus> {

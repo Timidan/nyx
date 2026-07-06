@@ -32,9 +32,13 @@ export interface AgentState {
   currentBatchId?: number | null;
   depth: number;
   depthThreshold: number;
-  /** not exposed by the agent /status API — present in mock mode only */
+  /** queued / max escrow notional, human units. Mock: play-money USD.
+   *  Live: token1 units decoded from /status token1X18 strings (absent when
+   *  talking to an older agent build that doesn't send them). */
   notionalWaiting?: number;
   notionalMax?: number;
+  /** token symbol for the notional readings (live mode); unset -> USD-style */
+  notionalSymbol?: string;
   secsSinceLastClear: number | null;
   dexPrice: number | null;
   pair: string;

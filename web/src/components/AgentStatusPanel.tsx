@@ -1,6 +1,6 @@
 import { useAgentState } from "../hooks/useAgentState";
 import { reasonWords } from "../lib/reasons";
-import { fmtUsd } from "../lib/format";
+import { fmtToken, fmtUsd } from "../lib/format";
 import type { AgentStatus } from "../types";
 
 const SUBTEXT: Record<AgentStatus, string> = {
@@ -56,7 +56,11 @@ export function AgentStatusPanel() {
         {data.notionalWaiting !== undefined && data.notionalMax !== undefined && (
           <Meter
             label="notional waiting"
-            value={`${fmtUsd(data.notionalWaiting)} / ${fmtUsd(data.notionalMax)}`}
+            value={
+              data.notionalSymbol
+                ? `${fmtToken(data.notionalWaiting)} / ${fmtToken(data.notionalMax)} ${data.notionalSymbol}`
+                : `${fmtUsd(data.notionalWaiting)} / ${fmtUsd(data.notionalMax)}`
+            }
             fill={data.notionalWaiting / data.notionalMax}
           />
         )}

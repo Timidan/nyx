@@ -23,3 +23,11 @@ export function fmtUsd(n: number): string {
 export function fromX18(x: bigint | string): number {
   return Number(formatUnits(typeof x === "bigint" ? x : BigInt(x), 18));
 }
+
+/** Compact token amount, e.g. 1.2k / 4.20 / 0.0042. */
+export function fmtToken(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  if (n >= 1) return n.toFixed(2);
+  if (n === 0) return "0";
+  return n.toPrecision(2);
+}

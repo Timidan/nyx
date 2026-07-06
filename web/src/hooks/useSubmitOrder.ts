@@ -2,7 +2,6 @@ import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-q
 import { erc20Abi, parseUnits, toHex } from "viem";
 import {
   getAccount,
-  getChainId,
   switchChain,
   waitForTransactionReceipt,
   writeContract,
@@ -43,7 +42,10 @@ async function sealLiveOrder(
 
   const account = getAccount(wagmiConfig);
   if (!account.address) throw new Error("Connect a wallet first.");
-  if (getChainId(wagmiConfig) !== botChain.id) {
+  // account.chainId is the wallet's REAL chain; getChainId(wagmiConfig) only
+  // reflects config state (always 968 here — the sole configured chain) and
+  // never detects a wallet sitting on another network.
+  if (account.chainId !== botChain.id) {
     await switchChain(wagmiConfig, { chainId: botChain.id });
   }
 

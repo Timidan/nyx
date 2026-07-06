@@ -10,12 +10,13 @@
 
 | Field | Value |
 |---|---|
-| Hackathon / bounty name | BOT Chain Builder Challenge |
-| Platform | Telegram-coordinated (no public listing indexed; rules per team recon in `nyx-botchain-plan.md`) |
-| Submission / BUIDL page URL | _confirm in Builders Telegram_ |
-| Chosen track | **AI Agent** (automated execution + on-chain interaction) |
+| Hackathon / bounty name | BOT Chain Builder Challenge #1 (5,000 USDT pool, 7-day online) |
+| Platform | Google Forms + Builders Telegram (t.me/BOTChainBuilders) |
+| **Registration form (required first)** | https://forms.gle/TgXQaPopPkJkm8Va6 |
+| **Submission form** | https://forms.gle/ZEU6B4SDXvZAjs9T8 |
+| Chosen track | **AI Agent** — "AI Agents, automated execution, or on-chain interaction demos on BOT Chain" (verbatim fit) |
 | Why this track | Autonomous agent is the only actor driving the contracts; continuous on-chain usage |
-| **Deadline (event TZ)** | **Jul 8, 23:59 UTC+8** |
+| **Deadline (event TZ)** | **Jul 8, 23:59 UTC+8** (judging Jul 8–15, results Jul 15) |
 | **Deadline (my TZ)** | **Jul 8, ~16:59 Lagos (UTC+1)** — target finish Jul 8 morning with buffer |
 
 ---
@@ -24,10 +25,20 @@
 
 | Source | URL | Read? | Notes / conflicts |
 |---|---|---|---|
-| Team recon doc | `nyx-botchain-plan.md` | ✅ | Primary source; encodes rubric + mandatory list |
-| Public web listing | — | ✅ searched | Not indexed anywhere; event is Telegram/X-coordinated |
-| Builders Telegram pinned rules | _confirm_ | ☐ | **User action: re-verify mandatory list against pinned post** |
-| BOT Chain infra | rpc.bohr.life / scan.bohr.life | ✅ probed | RPC live, chainId 968 confirmed, ~sub-second blocks, gas ~47 gwei |
+| **Official rules (full text)** | `hackathon details.md` (pasted Jul 6 evening) | ✅ | **Binding.** Confirms plan's rubric/deadline/tweet/form fields exactly; adds registration form, native-weighting, fair-play rules |
+| Team recon doc | `nyx-botchain-plan.md` | ✅ | Matched official rules on every mandatory item |
+| Official dev docs | dev-docs.botchain.ai quick-guide | ✅ fetched | **Testnet = chainId 968, rpc.bohr.life, scan.bohr.life (officially documented)**; mainnet = 677, botchain.ai family |
+| BOT Chain infra | rpc.bohr.life / scan.bohr.life | ✅ probed + used | Deployed + settling on the documented testnet |
+
+Rules-diff findings vs what we built (Jul 6 late):
+- ✅ Rubric 35/25/20/20, deadline, tweet spec, submission fields — plan matched official text exactly.
+- ⚠️ **Registration form must be completed before submitting** (Step 1) — user action.
+- ➕ "Native BOT Chain projects score higher … deep use of BOT Chain's capabilities" — we qualify strongly (agent reads the live BOT DEX pair every cycle as decision input, auction trades the native WBOT/BOUSDT pair, continuous agent-signed txs). Write-up must foreground this; RPC-swap-only projects are explicitly down-weighted.
+- ➕ Fair play: no fake demos/txs/data. Our demo rounds are real on-chain settlements with real tokens; the write-up discloses that early demo orders were seeded by the team while the agent settled them autonomously.
+- ➕ Demo video **or** live demo link acceptable (no length mandate; 2–3 min stays our target).
+- ➕ Open source "recommended", not mandatory — public repo still the practical choice (form asks for GitHub).
+- ➕ AI coding tools explicitly encouraged (Claude Code named); must be able to explain + demo the implementation.
+- ➕ Bounty submissions go through the same submission form with issue fields (title, repro, impact, proposed fix, contact + wallet).
 
 ---
 
@@ -47,10 +58,12 @@
 | BONUS | Best Content award | Build story / demo content (Miracle's lane) | ☐ | X post |
 | BONUS | PR/Bug/Optimization bounty | Doc gaps logged with repro + proposed fix | ☐ | Write-ups |
 
-> ⚠️ Open questions to confirm in Builders Telegram:
-> - Exact submission form URL + field list
-> - Whether a live demo URL is required or video suffices
-> - Faucet location for chain 968 test tokens
+> ✅ All former open questions resolved by the official rules (Jul 6):
+> - Submission form: https://forms.gle/ZEU6B4SDXvZAjs9T8 (fields confirmed, §Submission)
+> - Demo video **or** live demo link — either satisfies
+> - Faucet: https://faucet.botchain.ai/basic (bohr.life faucet already used successfully)
+>
+> ⚠️ Remaining user actions: complete the **registration form** (https://forms.gle/TgXQaPopPkJkm8Va6) and join t.me/BOTChainBuilders before submitting.
 
 ---
 

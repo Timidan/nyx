@@ -1,13 +1,25 @@
+import { useState } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
+import type { Connector } from "wagmi";
 import { truncateHash } from "../lib/format";
 import { useToast } from "./ToastProvider";
 
-/** Header wallet control — secondary button recipe from the design system. */
+/** Header wallet control — secondary button recipe from the design system.
+ *
+ *  Multi-wallet browsers (Rabby + TronLink + …) fight over window.ethereum,
+ *  so the generic `injected` connector can hang forever without ever opening
+ *  a wallet popup. Prefer the EIP-6963-discovered per-wallet connectors
+ *  (stable ids like "io.rabby"); the generic one is only a fallback when
+ *  discovery found nothing. */
 export function ConnectButton() {
   const { address, isConnected } = useAccount();
   const { connectAsync, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
   const { push } = useToast();
+  const [showPicker, setShowPicker] = useState(false);
+
+  const discovered = connectors.filter((c) => c.id !== "injected");
+  const usable = discovered.length > 0 ? discovered : [...connectors];
 
   const base =
     "rounded-input border border-border bg-surface px-4 py-2 text-[0.875rem] text-text hover:border-signal";
@@ -25,13 +37,12 @@ export function ConnectButton() {
     );
   }
 
-  async function onConnect() {
-    const connector = connectors[0];
-    if (!connector) return;
+  async function connectWith(connector: Connector) {
+    setShowPicker(false);
     try {
       await connectAsync({ connector });
     } catch (error) {
-      const message = (error as { shortMessage?: string; message?: string });
+      const message = error as { shortMessage?: string; message?: string };
       push({
         variant: "alert",
         title: "Wallet not connected",
@@ -43,14 +54,46 @@ export function ConnectButton() {
     }
   }
 
+  function onConnect() {
+    if (usable.length === 0) {
+      push({
+        variant: "alert",
+        title: "No wallet found",
+        message: "Install a browser wallet to seal orders on-chain.",
+      });
+      return;
+    }
+    if (usable.length === 1) {
+      void connectWith(usable[0]);
+      return;
+    }
+    setShowPicker((v) => !v);
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onConnect}
-      disabled={isPending}
-      className={`${base} disabled:opacity-60`}
-    >
-      {isPending ? "Connecting…" : "Connect wallet"}
-    </button>
+    <div className="relative">
+      <button
+        type="button"
+        onClick={onConnect}
+        disabled={isPending}
+        className={`${base} disabled:opacity-60`}
+      >
+        {isPending ? "Connecting…" : "Connect wallet"}
+      </button>
+      {showPicker && (
+        <div className="absolute right-0 top-full z-20 mt-2 min-w-44 rounded-card border border-border bg-surface-2 p-1 shadow-lg">
+          {usable.map((connector) => (
+            <button
+              key={connector.uid}
+              type="button"
+              onClick={() => void connectWith(connector)}
+              className="block w-full rounded-input px-3 py-2 text-left text-[0.875rem] text-text hover:bg-surface"
+            >
+              {connector.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

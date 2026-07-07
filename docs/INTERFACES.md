@@ -164,11 +164,11 @@ All optional for consumers; older agents may omit them.
 
 | Item | Value |
 |---|---|
-| NyxBatchAuction | `0xc0405e50d1bf816b9fb1a741cb46941828c378ea` |
-| Deploy tx | `0x4d255ffd772b5c0f7d399a9c6c0ce3accfc459eb36adb72332ba04f75b5e9917` |
-| Deployer | `0xcED560b8C815116C05F8C1045F10f0339bE11D60` |
-| Agent wallet | `0x253CbCB3A6221E2542516E5CB765C754bf3695b0` |
-| Milestone settlement tx | `0x6a8a55dd60fa4e5863a2070036da113de74681f3f3f075cced4aee7d2c5f4683` (batch 1, reason 1 imbalance, clearing 9.66 BOUSDT/WBOT, sent by agent wallet, escrow fully drained) |
+| NyxBatchAuction | `0x58126ae8ff411a3B1768b121763a0E999221b6da` |
+| Deploy tx | `0xe8e0338f6dfa524599b8c147d5f3fa94613e8896347480ae15f014a00059d40f` |
+| Deployer | `0xF62b9CEc835D125771898C73aeF05357855Cdc19` |
+| Agent wallet | `0xF62b9CEc835D125771898C73aeF05357855Cdc19` |
+| Milestone settlement tx | `0xaab7dd6ab9039d041ef98bc8358709ddf706e54878158cae418e6fc0d5a39b94` (batch 1, fresh deployment proof, signed by the VPS-held agent wallet) |
 
 ABIs: after `forge build`, canonical ABIs are copied to `shared/abi/*.json`
 for the frontend.

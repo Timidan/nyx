@@ -4,7 +4,7 @@
 
 **Sealed-bid batch auctions on BOT Chain, run and settled by an autonomous agent.**
 
-[![Chain](https://img.shields.io/badge/BOT_Chain-testnet_968-1418A8)](https://scan.bohr.life/address/0xc0405e50d1bf816b9fb1a741cb46941828c378ea)
+[![Chain](https://img.shields.io/badge/BOT_Chain-testnet_968-1418A8)](https://scan.bohr.life/address/0x58126ae8ff411a3B1768b121763a0E999221b6da)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.30-363636?logo=solidity)](contracts/)
 [![Foundry](https://img.shields.io/badge/tests-Foundry-orange)](contracts/test/)
 [![TypeScript](https://img.shields.io/badge/agent-TypeScript_%2B_viem-3178C6?logo=typescript&logoColor=white)](agent/)
@@ -91,9 +91,10 @@ and two-step agent rotation.
 
 | Item | Value |
 |---|---|
-| `NyxBatchAuction` | [`0xc0405e50d1bf816b9fb1a741cb46941828c378ea`](https://scan.bohr.life/address/0xc0405e50d1bf816b9fb1a741cb46941828c378ea) |
-| Agent wallet | [`0x253CbCB3A6221E2542516E5CB765C754bf3695b0`](https://scan.bohr.life/address/0x253CbCB3A6221E2542516E5CB765C754bf3695b0) |
-| Deploy tx | [`0xe772b444…03247`](https://scan.bohr.life/tx/0xe772b44451f48213027b51a693202e88f5180827d6770bc8fc8028f97d803247) |
+| `NyxBatchAuction` | [`0x58126ae8ff411a3B1768b121763a0E999221b6da`](https://scan.bohr.life/address/0x58126ae8ff411a3B1768b121763a0E999221b6da) |
+| Agent wallet | [`0xF62b9CEc835D125771898C73aeF05357855Cdc19`](https://scan.bohr.life/address/0xF62b9CEc835D125771898C73aeF05357855Cdc19) |
+| Deploy tx | [`0xe8e0338f…9d40f`](https://scan.bohr.life/tx/0xe8e0338f6dfa524599b8c147d5f3fa94613e8896347480ae15f014a00059d40f) |
+| Settlement proof | [`0xaab7dd6a…9b94`](https://scan.bohr.life/tx/0xaab7dd6ab9039d041ef98bc8358709ddf706e54878158cae418e6fc0d5a39b94) |
 
 An earlier instance (`0x4aD7971C…4777`, before the deviation guard and two-step
 rotation) settled the first live rounds; see git history.

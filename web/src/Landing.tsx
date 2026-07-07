@@ -15,7 +15,7 @@ import type { AgentStatus } from "./types";
 
 /** The deployed NyxBatchAuction; the landing links it even in mock mode. */
 const CONTRACT =
-  AUCTION_ADDRESS ?? "0xc0405e50d1bf816b9fb1a741cb46941828c378ea";
+  AUCTION_ADDRESS ?? "0x58126ae8ff411a3B1768b121763a0E999221b6da";
 
 const AGENT_LABEL: Record<AgentStatus, { label: string; dot: string; text: string }> = {
   watching: { label: "Watching", dot: "bg-muted", text: "text-muted" },

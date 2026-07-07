@@ -4,12 +4,12 @@ All commands assume the repo root is the current directory and that private keys
 are exported in the shell, not stored in files.
 
 > The current live instance
-> [`0xc0405e…378ea`](https://scan.bohr.life/address/0xc0405e50d1bf816b9fb1a741cb46941828c378ea)
+> [`0x58126a…b6da`](https://scan.bohr.life/address/0x58126ae8ff411a3B1768b121763a0E999221b6da)
 > was deployed from current source and includes the immutable clearing-price
-> deviation guard and two-step agent rotation. An earlier instance
-> (`0x4aD7971C…4777`) predates both; because `maxReferenceDeviationBps` and
-> `cancelDelaySeconds` are constructor-immutable, upgrading means redeploying
-> with this runbook, not retrofitting.
+> deviation guard and two-step agent rotation. Earlier instances are historical;
+> because `maxReferenceDeviationBps` and `cancelDelaySeconds` are
+> constructor-immutable, upgrading means redeploying with this runbook, not
+> retrofitting.
 
 ## 1. Deploy NyxBatchAuction
 
@@ -29,9 +29,10 @@ forge script script/Deploy.s.sol:Deploy \
 ```
 
 `Deploy.s.sol` reads `WBOT`, `BOUSDT`, and `BOT_DEX_PAIR` from `.env` (as
-`token0`, `token1`, and `referencePair`), reads `MAX_CLEARING_DEVIATION_BPS`,
-hardcodes a **2-day** cancel delay, and sets the **deployer** as the contract's
-initial `agent`. `maxReferenceDeviationBps` and `cancelDelaySeconds` are
+`token0`, `token1`, and `referencePair`), reads `AGENT_ADDRESS` and
+`MAX_CLEARING_DEVIATION_BPS`, hardcodes a **2-day** cancel delay, and sets
+`AGENT_ADDRESS` as the contract's initial `agent`. `maxReferenceDeviationBps`
+and `cancelDelaySeconds` are
 immutable — choose them at deploy time.
 
 Copy the deployed `NyxBatchAuction` address from the forge output:

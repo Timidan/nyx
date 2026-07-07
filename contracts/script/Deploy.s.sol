@@ -5,10 +5,10 @@ import { NyxBatchAuction } from "../src/NyxBatchAuction.sol";
 
 interface Vm {
     function envAddress(string calldata name) external view returns (address value);
+    function envOr(string calldata name, uint256 defaultValue) external view returns (uint256 value);
     function envUint(string calldata name) external view returns (uint256 value);
     function startBroadcast(uint256 privateKey) external;
     function stopBroadcast() external;
-    function addr(uint256 privateKey) external returns (address);
 }
 
 contract Deploy {
@@ -16,13 +16,17 @@ contract Deploy {
 
     function run() external returns (NyxBatchAuction auction) {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
         address wbot = vm.envAddress("WBOT");
         address bousdt = vm.envAddress("BOUSDT");
         address referencePair = vm.envAddress("BOT_DEX_PAIR");
+        address initialAgent = vm.envAddress("AGENT_ADDRESS");
+        uint256 maxClearingDeviationBps = vm.envOr("MAX_CLEARING_DEVIATION_BPS", uint256(1_000));
+        uint256 cancelDelaySeconds = vm.envOr("CANCEL_DELAY_SECONDS", uint256(2 days));
 
         vm.startBroadcast(deployerPrivateKey);
-        auction = new NyxBatchAuction(wbot, bousdt, referencePair, deployer, 2 days);
+        auction = new NyxBatchAuction(
+            wbot, bousdt, referencePair, initialAgent, cancelDelaySeconds, maxClearingDeviationBps
+        );
         vm.stopBroadcast();
     }
 }

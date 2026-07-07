@@ -7,3 +7,16 @@ broadcast/
 .env.*
 !.env.example
 *.local
+
+# internal docs (working notes, submission ops — not for the public repo)
+HACKATHON.md
+hackathon details.md
+nyx-botchain-plan.md
+docs/FEATURE_IDEAS.md
+docs/CLAUDE_ARCHITECTURE_NOTES.md
+docs/PRODUCTION_READINESS.md
+PRODUCT.md
+DESIGN.md
+docs/HANDOFF.md
+/tmp/handoff-*.md
+docs/DEMO.md

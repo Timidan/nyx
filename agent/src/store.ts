@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Hex32, OrderReveal, QueuedOrder, QueueStatus } from "./types.js";
 
@@ -19,6 +19,7 @@ interface StoredOrderJson {
 
 export class OrderStore {
   private orders = new Map<Hex32, QueuedOrder>();
+  private saveQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly path: string) {}
 
@@ -34,9 +35,20 @@ export class OrderStore {
   }
 
   async save(): Promise<void> {
+    const next = this.saveQueue.then(
+      () => this.writeSnapshot(),
+      () => this.writeSnapshot(),
+    );
+    this.saveQueue = next.catch(() => undefined);
+    await next;
+  }
+
+  private async writeSnapshot(): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true });
     const body = JSON.stringify([...this.orders.values()].map(toJson), null, 2);
-    await writeFile(this.path, `${body}\n`);
+    const tempPath = `${this.path}.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(tempPath, `${body}\n`, { mode: 0o600 });
+    await rename(tempPath, this.path);
   }
 
   all(): QueuedOrder[] {

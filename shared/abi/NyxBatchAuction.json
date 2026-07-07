@@ -26,8 +26,20 @@
         "name": "cancelDelaySeconds_",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "maxReferenceDeviationBps_",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "acceptAgent",
+    "inputs": [],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -192,7 +204,33 @@
   },
   {
     "type": "function",
+    "name": "maxReferenceDeviationBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingAgent",
     "inputs": [],
     "outputs": [
       {
@@ -394,6 +432,25 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AgentUpdateStarted",
+    "inputs": [
+      {
+        "name": "oldAgent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "pendingAgent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -600,6 +657,11 @@
   },
   {
     "type": "error",
+    "name": "ClearingPriceDeviationTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "DuplicateCommitment",
     "inputs": []
   },
@@ -611,6 +673,11 @@
   {
     "type": "error",
     "name": "HashMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidDeviationBps",
     "inputs": []
   },
   {
@@ -641,6 +708,11 @@
   {
     "type": "error",
     "name": "OnlyOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyPendingAgent",
     "inputs": []
   },
   {

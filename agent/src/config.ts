@@ -19,8 +19,13 @@ export interface AgentConfig {
   expectedAgent?: Address;
   fromBlock: bigint;
   pollMs: number;
+  httpHost: string;
   httpPort: number;
   corsOrigin: string;
+  apiBearerToken?: string;
+  requireApiBearerToken: boolean;
+  rateLimitWindowMs: number;
+  rateLimitMaxRequests: number;
   storePath: string;
   depthMin: number;
   imbalanceBps: number;
@@ -32,6 +37,14 @@ export interface AgentConfig {
 }
 
 export function loadConfig(overrides: { dryRun?: boolean } = {}): AgentConfig {
+  const requireApiBearerToken =
+    env("AGENT_REQUIRE_API_BEARER_TOKEN", process.env.NODE_ENV === "production" ? "true" : "false")
+      === "true";
+  const apiBearerToken = process.env.AGENT_API_BEARER_TOKEN;
+  if (requireApiBearerToken && !apiBearerToken) {
+    throw new Error("AGENT_API_BEARER_TOKEN is required when bearer-token enforcement is enabled");
+  }
+
   return {
     rpcUrl: required("RPC_URL"),
     chainId: Number(env("CHAIN_ID", "968")),
@@ -43,8 +56,13 @@ export function loadConfig(overrides: { dryRun?: boolean } = {}): AgentConfig {
     expectedAgent: optionalAddress("AGENT_ADDRESS"),
     fromBlock: BigInt(env("START_BLOCK", "0")),
     pollMs: Number(env("AGENT_POLL_MS", "5000")),
+    httpHost: env("AGENT_HOST", "127.0.0.1"),
     httpPort: Number(env("AGENT_PORT", "8787")),
-    corsOrigin: env("CORS_ORIGIN", "http://localhost:5173"),
+    corsOrigin: env("CORS_ORIGIN", "http://localhost:5190"),
+    apiBearerToken,
+    requireApiBearerToken,
+    rateLimitWindowMs: Number(env("AGENT_RATE_LIMIT_WINDOW_MS", "60000")),
+    rateLimitMaxRequests: Number(env("AGENT_RATE_LIMIT_MAX_REQUESTS", "60")),
     storePath: env("ORDER_STORE_PATH", resolve(process.cwd(), ".data/orders.json")),
     depthMin: Number(env("DEPTH_MIN", "4")),
     imbalanceBps: Number(env("IMBALANCE_BPS", "1500")),

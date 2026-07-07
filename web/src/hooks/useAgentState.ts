@@ -58,6 +58,17 @@ async function fetchLiveAgentState(qc: QueryClient): Promise<AgentState> {
             notionalSymbol: meta?.quote.symbol ?? "token1",
           }
         : {};
+    // v3 decision-trace fields — every field optional; absent ones stay
+    // undefined so the panel hides their rows
+    const trace =
+      s.decision || s.config
+        ? {
+            imbalanceBps: s.decision?.imbalanceBps,
+            imbalanceLimitBps: s.config?.imbalanceBps,
+            maxIntervalSeconds: s.config?.maxIntervalSeconds,
+            dexSpreadOk: s.decision?.dexSpreadOk,
+          }
+        : undefined;
     return {
       ...common,
       ...notional,
@@ -71,6 +82,7 @@ async function fetchLiveAgentState(qc: QueryClient): Promise<AgentState> {
       depthThreshold: s.depthMin ?? FALLBACK_DEPTH_THRESHOLD,
       secsSinceLastClear: s.secondsSinceLastClear,
       dexPrice: s.referencePriceX18 !== null ? fromX18(s.referencePriceX18) : null,
+      trace,
     };
   } catch {
     // agent API unreachable — chain-only degradation

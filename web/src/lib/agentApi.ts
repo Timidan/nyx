@@ -27,6 +27,23 @@ export interface AgentApiStatus {
   notionalMax?: string;
   /** "token1X18": token1-normalized X18 units */
   notionalUnit?: string;
+  /** v3 (decision trace) — optional, older agents omit the whole objects */
+  decision?: {
+    /** queued sell-side notional for token0, token1X18 units */
+    side0X18?: string;
+    /** queued sell-side notional for token1, token1X18 units */
+    side1X18?: string;
+    /** current side imbalance in bps (null when either side is empty) */
+    imbalanceBps?: number | null;
+    /** whether any queued order clears favorably vs the DEX reference */
+    dexSpreadOk?: boolean;
+  };
+  config?: {
+    imbalanceBps?: number;
+    maxIntervalSeconds?: number;
+    dexSpreadBps?: number;
+    maxClearingDeviationBps?: number;
+  };
 }
 
 export async function fetchAgentStatus(): Promise<AgentApiStatus> {

@@ -1,47 +1,55 @@
 @import "tailwindcss";
 
 /*
-  Nyx design system — "Win95, but designed in 2026" (user pivot, supersedes
-  the night-observatory direction). Light warm-chrome ground, white panel
-  windows with 2px black borders and hard offset shadows, navy title bars,
-  teal/green/red accents, square corners everywhere.
+  Nyx design system — "Win95, but designed in 2026" (see DESIGN.md).
+  Light warm-chrome ground, panel windows with hard borders and hard offset
+  shadows, navy title bars, teal/green/red accents, square corners everywhere.
 
-  Token NAMES are unchanged from the first theme so existing utility classes
-  keep working — only the values were swapped:
-    --color-ground  -> bg-ground / text-ground / border-ground
-    --font-pixel    -> font-pixel (wordmark + window title bars only)
-    --shadow-win    -> shadow-win (window chrome hard shadow)
+  Theming: @theme holds the LIGHT values; html[data-theme="dark"] overrides
+  the same custom properties (utilities compile to var() references, so every
+  class flips automatically). Hard shadows stay solid black in BOTH themes —
+  they are literals, never var(--color-border).
 */
 @theme {
   /* ground + surfaces */
   --color-ground: #d8d5ce; /* warm chrome gray, never pure white page */
   --color-surface: #fdfdfb; /* window body */
   --color-surface-2: #f0eee6;
-  --color-border: #0a0a0a; /* hard black lines */
+  --color-border: #0a0a0a; /* hard ink lines */
 
   /* text */
   --color-text: #131313;
-  --color-muted: #57534a;
-  --color-faint: #857f72;
+  --color-muted: #4c483f; /* >=4.5:1 on ground and surface */
+  --color-faint: #5f5b52; /* >=4.5:1 on ground and surface */
 
   /* signal: modernized Win95 teal = perceiving / deciding / live */
-  --color-signal: #0e8a84;
-  --color-signal-dim: #0b6b66;
+  --color-signal: #0b7570;
+  --color-signal-dim: #085f5b;
 
   /* settle: classic green = settled / success */
   --color-settle: #0a7d2b;
-  --color-settle-dim: #07571e;
+  --color-settle-dim: #07571e; /* also the sell-side fill (white text) */
 
   /* alert: failure, used sparingly */
   --color-alert: #c42b2b;
 
   /* win95 chrome */
-  --color-navy: #1418a8; /* modernized #000080 — title bars, primary action */
-  --color-note: #ffde59; /* notification chip yellow */
+  --color-navy: #1418a8; /* fills: title bars, primary action, menu hover */
+  --color-link: #1418a8; /* text links + focus ring (brightens in dark) */
+  --color-note: #ffde59; /* notification chip */
 
-  /* extra hues for the pulse's reason-code legend */
-  --color-amber: #b8860b;
+  /* legacy accents (chart marks now use the --color-chart-* palette) */
+  --color-amber: #8a6508;
   --color-plum: #7d3a86;
+
+  /* chart marks: reason-coded data ink, separate from the text tokens.
+     Validated for lightness band, chroma floor, CVD separation (dE >= 19),
+     and 3:1 contrast on the light surface. Do not tweak by eye. */
+  --color-chart-0: #0d9488;
+  --color-chart-1: #4e5be6;
+  --color-chart-2: #3aa24e;
+  --color-chart-3: #c08414;
+  --color-chart-4: #a251b8;
 
   /* typography */
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
@@ -54,14 +62,70 @@
   --radius-card: 0px;
   --radius-panel: 0px;
 
-  /* hard offset shadows — the thick shadow boxes */
+  /* hard offset shadows — always solid black, both themes */
   --shadow-win: 6px 6px 0 0 #0a0a0a;
   --shadow-tip: 4px 4px 0 0 #0a0a0a;
+}
+
+/* non-Tailwind theme knobs */
+:root {
+  --sunken-inset: rgb(10 10 10 / 0.22);
+  --ambient-ink: rgb(10 10 10 / 0.09);
+  --starfield-ink: rgb(10 10 10 / 0.3);
+  --plot-grid: rgb(10 10 10 / 0.12);
+  --plot-baseline: rgb(10 10 10 / 0.4);
+}
+
+/*
+  Dark theme: Win95 "high contrast" homage, designed rather than inverted.
+  Windows are near-black outlined in light ink; the ground stays a shade
+  lighter so the solid-black hard shadows still read as offsets.
+*/
+html[data-theme="dark"] {
+  --color-ground: #2e2c27;
+  --color-surface: #131316;
+  --color-surface-2: #1e1e22;
+  --color-border: #d9d5c9;
+
+  --color-text: #edeae0;
+  --color-muted: #aba69a;
+  --color-faint: #9e9987;
+
+  /* signal: luminous mint-teal — aligns dark Nyx with the BOT Chain
+     ecosystem (explorer/DEX read black + glowing mint). ~11:1 on surface. */
+  --color-signal: #19e2b4;
+  --color-signal-dim: #12a382;
+  --color-settle: #3fce6f;
+  --color-settle-dim: #0f7434;
+  --color-alert: #f27e7e;
+
+  --color-navy: #2c31c4;
+  --color-link: #9296f8;
+  --color-note: #574a15;
+
+  --color-amber: #d9a83c;
+  --color-plum: #c077d6;
+
+  /* chart marks: dark palette, validated on the dark surface (see @theme) */
+  --color-chart-0: #10a38a;
+  --color-chart-1: #707af2;
+  --color-chart-2: #47a24f;
+  --color-chart-3: #bc8a20;
+  --color-chart-4: #af6ec6;
+
+  --sunken-inset: rgb(0 0 0 / 0.6);
+  --ambient-ink: rgb(255 255 255 / 0.08);
+  --starfield-ink: rgb(237 234 224 / 0.55);
+  --plot-grid: rgb(217 213 201 / 0.12);
+  --plot-baseline: rgb(217 213 201 / 0.4);
 }
 
 @layer base {
   html {
     color-scheme: light;
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
   }
   body {
     margin: 0;
@@ -76,24 +140,28 @@
     background-color: var(--color-navy);
     color: #ffffff;
   }
+  html[data-theme="dark"] ::selection {
+    background-color: var(--color-link);
+    color: #131316;
+  }
   /* visible a11y focus ring; the authentic inner dotted box lives on .btn95 */
   :focus-visible {
-    outline: 2px solid var(--color-navy);
+    outline: 2px solid var(--color-link);
     outline-offset: 2px;
   }
 }
 
 @layer components {
-  /* Raised Win95 button: 2px black border + hard shadow; pressing shoves it
+  /* Raised Win95 button: hard border + hard black shadow; pressing shoves it
      into the page. Disabled buttons lie flat. */
   .btn95 {
     position: relative;
     border: 2px solid var(--color-border);
-    box-shadow: 4px 4px 0 0 var(--color-border);
+    box-shadow: 4px 4px 0 0 #0a0a0a;
   }
   .btn95:active:not(:disabled) {
     transform: translate(2px, 2px);
-    box-shadow: 1px 1px 0 0 var(--color-border);
+    box-shadow: 1px 1px 0 0 #0a0a0a;
   }
   .btn95:disabled {
     box-shadow: none;
@@ -111,14 +179,207 @@
   .sunken95 {
     border: 2px solid var(--color-border);
     background: var(--color-surface);
-    box-shadow: inset 2px 2px 0 0 rgb(10 10 10 / 0.22);
+    box-shadow: inset 2px 2px 0 0 var(--sunken-inset);
+  }
+
+  /* Comfortable touch targets on small screens (.tap95 for non-btn95
+     interactive rows like the side toggle and wallet-picker entries). */
+  @media (max-width: 640px) {
+    .btn95,
+    .tap95 {
+      min-height: 44px;
+    }
   }
 }
 
 /*
-  The one orchestrated motion moment: the clearing pulse.
-  Each newly settled bar grows in with the plan's --pulse curve.
-  Everything else on the page stays still.
+  Ambient retro background (explicit exception to the one-moment motion rule).
+  Deliberately VISIBLE per user ask: a perceptible drifting pixel checker, a
+  Starfield-screensaver homage (pixel squares crossing at varied speeds for a
+  parallax feel), a pixel shooting star every ~25s, and static CRT scanlines
+  in dark mode. All layers sit BEHIND the windows (negative z-index), are
+  pointer-transparent, and animate transform/opacity only (GPU-composited).
+*/
+.ambient {
+  position: fixed;
+  inset: -128px;
+  z-index: -4;
+  pointer-events: none;
+  background-image: repeating-conic-gradient(
+    var(--ambient-ink) 0% 25%,
+    transparent 0% 50%
+  );
+  background-size: 8px 8px;
+  animation: ambient-drift 36s linear infinite;
+  will-change: transform;
+}
+@keyframes ambient-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    /* multiples of the 8px tile so the loop is seamless */
+    transform: translate3d(64px, 64px, 0);
+  }
+}
+
+.scanlines {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  display: none;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0.35) 0 1px,
+    transparent 1px 3px
+  );
+  opacity: 0.09;
+}
+html[data-theme="dark"] .scanlines {
+  display: block;
+}
+
+/* Starfield homage: 12 pixels drifting at distinct speeds and directions.
+   Negative delays put every star mid-path on load. */
+.starfield {
+  position: fixed;
+  inset: 0;
+  z-index: -3;
+  pointer-events: none;
+}
+.starfield span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 3px;
+  background: var(--starfield-ink);
+  will-change: transform;
+  animation: sf-right 60s linear infinite;
+}
+@keyframes sf-right {
+  from {
+    transform: translate3d(-4vw, var(--sf-y, 50vh), 0);
+  }
+  to {
+    transform: translate3d(104vw, var(--sf-y, 50vh), 0);
+  }
+}
+@keyframes sf-left {
+  from {
+    transform: translate3d(104vw, var(--sf-y, 50vh), 0);
+  }
+  to {
+    transform: translate3d(-4vw, var(--sf-y, 50vh), 0);
+  }
+}
+@keyframes sf-diag {
+  from {
+    transform: translate3d(-4vw, calc(var(--sf-y, 50vh) - 14vh), 0);
+  }
+  to {
+    transform: translate3d(104vw, calc(var(--sf-y, 50vh) + 14vh), 0);
+  }
+}
+/* per-star: y lane, direction, speed (parallax), phase, size */
+.starfield span:nth-child(1) { --sf-y: 8vh; animation: sf-right 44s linear -12s infinite; }
+.starfield span:nth-child(2) { --sf-y: 16vh; animation: sf-left 76s linear -40s infinite; width: 2px; height: 2px; }
+.starfield span:nth-child(3) { --sf-y: 24vh; animation: sf-diag 58s linear -25s infinite; }
+.starfield span:nth-child(4) { --sf-y: 33vh; animation: sf-right 90s linear -60s infinite; width: 2px; height: 2px; }
+.starfield span:nth-child(5) { --sf-y: 41vh; animation: sf-left 50s linear -8s infinite; width: 4px; height: 4px; }
+.starfield span:nth-child(6) { --sf-y: 49vh; animation: sf-right 66s linear -33s infinite; }
+.starfield span:nth-child(7) { --sf-y: 57vh; animation: sf-diag 82s linear -55s infinite; width: 2px; height: 2px; }
+.starfield span:nth-child(8) { --sf-y: 65vh; animation: sf-left 60s linear -18s infinite; }
+.starfield span:nth-child(9) { --sf-y: 72vh; animation: sf-right 52s linear -45s infinite; width: 4px; height: 4px; }
+.starfield span:nth-child(10) { --sf-y: 80vh; animation: sf-diag 70s linear -5s infinite; }
+.starfield span:nth-child(11) { --sf-y: 88vh; animation: sf-left 86s linear -70s infinite; width: 2px; height: 2px; }
+.starfield span:nth-child(12) { --sf-y: 94vh; animation: sf-right 74s linear -28s infinite; }
+
+.star {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  width: 4px;
+  height: 4px;
+  pointer-events: none;
+  background: var(--color-faint);
+  opacity: 0;
+  animation: star-cross 25s linear infinite;
+  will-change: transform, opacity;
+}
+@keyframes star-cross {
+  0% {
+    transform: translate3d(-4vw, 12vh, 0);
+    opacity: 0;
+  }
+  0.6% {
+    opacity: 0.6;
+  }
+  4.4% {
+    opacity: 0.6;
+  }
+  5% {
+    transform: translate3d(104vw, 58vh, 0);
+    opacity: 0;
+  }
+  100% {
+    transform: translate3d(104vw, 58vh, 0);
+    opacity: 0;
+  }
+}
+
+/*
+  Dark theme runs the interactive <canvas> NightSky backdrop (deep-space
+  gradient + a constellation node network that reacts to the cursor). Its
+  drifting twinkling nodes fill the star role, so the DOM starfield and pixel
+  shooting star would double it — hide them in dark. The pixel-checker
+  (.ambient) and CRT scanlines add texture the canvas does not, so they stay
+  and read over it. Light theme keeps every DOM layer exactly as before.
+*/
+html[data-theme="dark"] .starfield,
+html[data-theme="dark"] .star {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient {
+    animation: none; /* static texture is fine */
+  }
+  .starfield {
+    display: none;
+  }
+  .star {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/*
+  Agent-activity chart interior: modern instrument inside the Win95 chrome.
+  Clean surface (the sunken well), two faint 1px gridlines at the max and
+  midpoint ticks, and a visible baseline. Sized/positioned by the component
+  so it spans exactly the bar-drawing area; bars paint over the baseline.
+*/
+.plot-gridlines {
+  position: absolute;
+  pointer-events: none;
+  border-bottom: 1px solid var(--plot-baseline);
+  background-image:
+    linear-gradient(to bottom, var(--plot-grid) 0 1px, transparent 1px 100%),
+    linear-gradient(
+      to bottom,
+      transparent 0 calc(50% - 1px),
+      var(--plot-grid) calc(50% - 1px) 50%,
+      transparent 50% 100%
+    );
+}
+
+/*
+  The one orchestrated interface moment: the activity pulse.
+  Each newly settled bar grows in with the 220ms pulse curve.
+  Everything inside the windows stays still.
 */
 @keyframes pulse-grow {
   from {
@@ -139,4 +400,115 @@
   .pulse-grow {
     animation: none;
   }
+}
+
+/*
+  Landing atmosphere (landing route only, additive to the ambient layers):
+  a static, image-like backdrop — large asymmetric mint/navy radial glows,
+  an edge vignette, and a fine grain so the field reads as a render rather
+  than flat gradients. Evokes the BOT Chain ecosystem's luminous-dark pages
+  without copying their assets. Dark gets the full effect; light gets a much
+  subtler warm counterpart. Entirely static; the windows above are opaque,
+  so text contrast is untouched.
+*/
+.landing-atmo {
+  position: fixed;
+  inset: 0;
+  z-index: -5; /* beneath every ambient layer and all content */
+  pointer-events: none;
+  /* light: one faint teal tint, upper-right */
+  background-image: radial-gradient(
+    ellipse 55% 40% at 80% 8%,
+    rgb(11 117 112 / 0.06),
+    transparent 65%
+  );
+}
+.landing-atmo::before {
+  /* vignette: light = soft warm edges */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 95% 85% at 50% 38%,
+    transparent 58%,
+    rgb(76 72 63 / 0.16) 100%
+  );
+}
+.landing-atmo::after {
+  /* grain: tiny turbulence tile at whisper opacity */
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+html[data-theme="dark"] .landing-atmo {
+  /* The canvas NightSky (constellation) now owns the mint / navy glow, so
+     the static landing glows here would double it — drop them in dark. The
+     vignette (::before) and grain (::after) below stay: they deepen the edges
+     and add a render-like tooth the canvas does not, and neither doubles it. */
+  background-image: none;
+}
+html[data-theme="dark"] .landing-atmo::before {
+  background: radial-gradient(
+    ellipse 92% 82% at 50% 36%,
+    transparent 52%,
+    rgb(0 0 0 / 0.5) 100%
+  );
+}
+html[data-theme="dark"] .landing-atmo::after {
+  opacity: 0.03;
+}
+
+/* Halo + thin glow line behind the hero pixel wordmark — dark only, static. */
+.hero-halo {
+  display: none;
+}
+html[data-theme="dark"] .hero-halo {
+  display: block;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1; /* joins the root stacking context behind all window content */
+  width: min(56rem, 94vw);
+  height: 15rem;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  background-image:
+    radial-gradient(
+      ellipse 48% 46% at 50% 50%,
+      rgb(25 226 180 / 0.13),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 46% 2px at 50% 58%,
+      rgb(25 226 180 / 0.4),
+      transparent 75%
+    );
+}
+
+/*
+  CRT phosphor bloom — DARK THEME ONLY, fully STATIC (no animation).
+  A soft two-step glow tinted by the element's own currentColor, echoing the
+  BOT Chain explorer/DEX look (luminous mint on black). It rides ONLY on live
+  status LEDs, the LIVE badge, hovered chart columns, and hovered links —
+  nothing else glows. The light theme has zero glow (these rules never match
+  outside html[data-theme="dark"]).
+*/
+html[data-theme="dark"] .crt-glow {
+  box-shadow:
+    0 0 6px color-mix(in srgb, currentColor 35%, transparent),
+    0 0 2px color-mix(in srgb, currentColor 60%, transparent);
+}
+html[data-theme="dark"] .crt-glow-text,
+html[data-theme="dark"] a:hover {
+  text-shadow:
+    0 0 6px color-mix(in srgb, currentColor 35%, transparent),
+    0 0 2px color-mix(in srgb, currentColor 60%, transparent);
+}
+/* hovered activity column glows in its own reason color */
+html[data-theme="dark"] .group\/bar:hover .crt-col {
+  box-shadow:
+    0 0 6px color-mix(in srgb, currentColor 35%, transparent),
+    0 0 2px color-mix(in srgb, currentColor 60%, transparent);
 }

@@ -13,8 +13,12 @@ import { nyxBatchAuctionHumanAbi } from "./abi";
 
 function readAuctionAddress(): `0x${string}` | null {
   const raw = import.meta.env.VITE_AUCTION_ADDRESS;
-  if (!raw) return null;
+  if (!raw) {
+    if (requiresLiveMode()) throw new Error("VITE_AUCTION_ADDRESS is required in live mode");
+    return null;
+  }
   if (!isAddress(raw)) {
+    if (requiresLiveMode()) throw new Error(`VITE_AUCTION_ADDRESS is not a valid address (${raw})`);
     console.warn(
       `VITE_AUCTION_ADDRESS is not a valid address (${raw}); falling back to simulated data.`,
     );
@@ -25,6 +29,7 @@ function readAuctionAddress(): `0x${string}` | null {
 
 export const AUCTION_ADDRESS = readAuctionAddress();
 export const IS_LIVE = AUCTION_ADDRESS !== null;
+export const REQUIRE_LIVE = requiresLiveMode();
 
 /** Agent local HTTP API (agent/: AGENT_PORT env, default 8787). */
 export const AGENT_API = (
@@ -66,3 +71,7 @@ function resolveAuctionAbi(): typeof nyxBatchAuctionHumanAbi {
 }
 
 export const nyxBatchAuctionAbi = resolveAuctionAbi();
+
+function requiresLiveMode(): boolean {
+  return import.meta.env.VITE_REQUIRE_LIVE === "true";
+}

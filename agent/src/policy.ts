@@ -38,31 +38,40 @@ export interface Decision {
   label: string | null;
   queueDepth: number;
   totalNotionalX18: bigint;
+  side0X18: bigint;
+  side1X18: bigint;
+  imbalanceBps: number | null;
+  dexSpreadOk: boolean;
 }
 
 export function decide(input: DecisionInput): Decision {
   const queue = input.queue.filter(
     (entry) => entry.status === "queued" && entry.order.batchId === input.currentBatchId,
   );
-  const totalNotionalX18 = queue.reduce(
-    (sum, entry) => sum + notionalToken1X18(entry, input),
-    0n,
-  );
-  const base = { queueDepth: queue.length, totalNotionalX18 };
-
-  if (queue.length >= input.depthMin) {
-    return withReason(base, ReasonCode.DepthThreshold);
-  }
-
   const side0 = queue
     .filter((entry) => sameAddress(entry.order.sellToken, input.token0))
     .reduce((sum, entry) => sum + notionalToken1X18(entry, input), 0n);
   const side1 = queue
     .filter((entry) => sameAddress(entry.order.sellToken, input.token1))
     .reduce((sum, entry) => sum + notionalToken1X18(entry, input), 0n);
+  const totalNotionalX18 = side0 + side1;
+  const imbalanceBps =
+    side0 > 0n && side1 > 0n ? Number((absDiff(side0, side1) * 10_000n) / (side0 + side1)) : null;
+  const dexSpreadOk = queue.length > 0 && hasDexSpreadOpportunity(queue, input);
+  const base = {
+    queueDepth: queue.length,
+    totalNotionalX18,
+    side0X18: side0,
+    side1X18: side1,
+    imbalanceBps,
+    dexSpreadOk,
+  };
 
-  if (input.imbalanceBps > 0 && side0 > 0n && side1 > 0n) {
-    const imbalanceBps = Number((absDiff(side0, side1) * 10_000n) / (side0 + side1));
+  if (queue.length >= input.depthMin) {
+    return withReason(base, ReasonCode.DepthThreshold);
+  }
+
+  if (input.imbalanceBps > 0 && imbalanceBps != null) {
     if (imbalanceBps <= input.imbalanceBps) {
       return withReason(base, ReasonCode.Imbalance);
     }
@@ -76,7 +85,7 @@ export function decide(input: DecisionInput): Decision {
     return withReason(base, ReasonCode.MaxInterval);
   }
 
-  if (queue.length > 0 && hasDexSpreadOpportunity(queue, input)) {
+  if (dexSpreadOk) {
     return withReason(base, ReasonCode.DexSpreadTrigger);
   }
 
@@ -84,7 +93,10 @@ export function decide(input: DecisionInput): Decision {
 }
 
 function withReason(
-  base: Pick<Decision, "queueDepth" | "totalNotionalX18">,
+  base: Pick<
+    Decision,
+    "queueDepth" | "totalNotionalX18" | "side0X18" | "side1X18" | "imbalanceBps" | "dexSpreadOk"
+  >,
   reason: ReasonCode,
 ): Decision {
   return { ...base, reason, label: reasonLabels[reason] };
@@ -109,6 +121,13 @@ function notionalToken1X18(
 
 function hasDexSpreadOpportunity(queue: QueuedOrder[], input: DecisionInput): boolean {
   return queue.some((entry) => {
+    if (
+      !sameAddress(entry.order.sellToken, input.token0) &&
+      !sameAddress(entry.order.sellToken, input.token1)
+    ) {
+      return false;
+    }
+
     const refBuyAmount = previewBuyAmount({
       sellToken: entry.order.sellToken,
       sellAmount: entry.order.sellAmount,

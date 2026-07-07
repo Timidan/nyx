@@ -19,6 +19,7 @@ contract NyxBatchAuction is INyxBatchAuction {
     uint8 private constant STATUS_SETTLED = 2;
     uint8 private constant STATUS_CANCELLED = 3;
     uint8 private constant MAX_REASON = 4;
+    uint256 private constant BPS_DENOMINATOR = 10_000;
     uint256 private constant X18 = 1e18;
 
     address public immutable token0;
@@ -26,8 +27,10 @@ contract NyxBatchAuction is INyxBatchAuction {
     address public immutable referencePair;
     address public immutable owner;
     uint256 public immutable cancelDelaySeconds;
+    uint256 public immutable maxReferenceDeviationBps;
 
     address public agent;
+    address public pendingAgent;
     uint64 public currentBatchId;
 
     uint8 private immutable token0Decimals;
@@ -53,6 +56,7 @@ contract NyxBatchAuction is INyxBatchAuction {
     error ZeroAmount();
     error InvalidToken();
     error InvalidReason();
+    error InvalidDeviationBps();
     error InvalidReferencePair();
     error EmptySettlement();
     error WrongBatch();
@@ -64,9 +68,11 @@ contract NyxBatchAuction is INyxBatchAuction {
     error RevealMismatch();
     error MinBuyAmountNotMet();
     error UnbalancedSettlement();
+    error ClearingPriceDeviationTooHigh();
     error CancelDelayNotElapsed();
     error SafeTransferFailed();
     error ZeroReferenceReserve();
+    error OnlyPendingAgent();
 
     modifier onlyAgent() {
         if (msg.sender != agent) revert OnlyAgent();
@@ -90,13 +96,15 @@ contract NyxBatchAuction is INyxBatchAuction {
         address token1_,
         address referencePair_,
         address initialAgent,
-        uint256 cancelDelaySeconds_
+        uint256 cancelDelaySeconds_,
+        uint256 maxReferenceDeviationBps_
     ) {
         if (
             token0_ == address(0) || token1_ == address(0) || referencePair_ == address(0)
                 || initialAgent == address(0)
         ) revert ZeroAddress();
         if (token0_ == token1_) revert InvalidToken();
+        if (maxReferenceDeviationBps_ > BPS_DENOMINATOR) revert InvalidDeviationBps();
 
         token0 = token0_;
         token1 = token1_;
@@ -104,6 +112,7 @@ contract NyxBatchAuction is INyxBatchAuction {
         owner = msg.sender;
         agent = initialAgent;
         cancelDelaySeconds = cancelDelaySeconds_;
+        maxReferenceDeviationBps = maxReferenceDeviationBps_;
         token0Decimals = IERC20Minimal(token0_).decimals();
         token1Decimals = IERC20Minimal(token1_).decimals();
 
@@ -146,6 +155,8 @@ contract NyxBatchAuction is INyxBatchAuction {
         if (matchedOrders.length == 0) revert EmptySettlement();
         if (clearingPriceX18 == 0) revert ZeroAmount();
         if (reason > MAX_REASON) revert InvalidReason();
+        uint256 referencePriceX18 = getReferencePriceX18();
+        _validateClearingPrice(clearingPriceX18, referencePriceX18);
 
         SettlementTotals memory totals;
         bytes32[] memory commitments = new bytes32[](matchedOrders.length);
@@ -180,7 +191,6 @@ contract NyxBatchAuction is INyxBatchAuction {
         settlementHash = keccak256(
             abi.encode(block.chainid, address(this), batchId, clearingPriceX18, reason, commitments)
         );
-        uint256 referencePriceX18 = getReferencePriceX18();
         emit BatchSettled(
             batchId, matchCount, clearingPriceX18, reason, referencePriceX18, settlementHash
         );
@@ -196,6 +206,7 @@ contract NyxBatchAuction is INyxBatchAuction {
         if (stored.status == STATUS_NONE) revert UnknownOrder();
         if (stored.status != STATUS_SUBMITTED) revert OrderNotSubmitted();
         if (stored.trader != msg.sender) revert UnauthorizedTrader();
+        // forge-lint: disable-next-line(block-timestamp)
         if (block.timestamp < uint256(stored.submittedAt) + cancelDelaySeconds) {
             revert CancelDelayNotElapsed();
         }
@@ -265,9 +276,16 @@ contract NyxBatchAuction is INyxBatchAuction {
 
     function setAgent(address newAgent) external onlyOwner {
         if (newAgent == address(0)) revert ZeroAddress();
+        pendingAgent = newAgent;
+        emit AgentUpdateStarted(agent, newAgent);
+    }
+
+    function acceptAgent() external {
+        if (msg.sender != pendingAgent) revert OnlyPendingAgent();
         address oldAgent = agent;
-        agent = newAgent;
-        emit AgentUpdated(oldAgent, newAgent);
+        agent = msg.sender;
+        pendingAgent = address(0);
+        emit AgentUpdated(oldAgent, msg.sender);
     }
 
     struct SettlementTotals {
@@ -310,6 +328,18 @@ contract NyxBatchAuction is INyxBatchAuction {
         } else {
             totals.sold1 += sellAmount;
             totals.buy0 += buyAmount;
+        }
+    }
+
+    function _validateClearingPrice(uint256 clearingPriceX18, uint256 referencePriceX18)
+        internal
+        view
+    {
+        uint256 maxDelta = (referencePriceX18 * maxReferenceDeviationBps) / BPS_DENOMINATOR;
+        uint256 lowerBound = referencePriceX18 > maxDelta ? referencePriceX18 - maxDelta : 0;
+        uint256 upperBound = referencePriceX18 + maxDelta;
+        if (clearingPriceX18 < lowerBound || clearingPriceX18 > upperBound) {
+            revert ClearingPriceDeviationTooHigh();
         }
     }
 

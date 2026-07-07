@@ -47,6 +47,18 @@ export interface AgentStatus {
   notionalWaiting: string;
   notionalMax: string;
   notionalUnit: string;
+  decision: {
+    side0X18: string;
+    side1X18: string;
+    imbalanceBps: number | null;
+    dexSpreadOk: boolean;
+  };
+  config: {
+    imbalanceBps: number;
+    maxIntervalSeconds: number;
+    dexSpreadBps: number;
+    maxClearingDeviationBps: number;
+  };
   lastTx: Hex32 | null;
   referencePriceX18: string | null;
   secondsSinceLastClear: number;

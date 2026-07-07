@@ -1,6 +1,7 @@
 import { formatUnits, getAddress, type PublicClient } from "viem";
 import { decide, reasonLabels, type Decision } from "./policy.js";
-import { absDiff, previewBuyAmount, toX18 } from "./math.js";
+import { toX18 } from "./math.js";
+import { buildComplementarySettlement } from "./matcher.js";
 import {
   hashOrder,
   makePublicClient,
@@ -8,13 +9,14 @@ import {
   readAuctionSnapshot,
   readDexSnapshot,
   readLatestBatchSettledReason,
+  readOrder,
   readSubmittedStatuses,
   sendSettleWithGasBump,
   simulateSettle,
 } from "./chain.js";
 import { readAgentPrivateKey, type AgentConfig } from "./config.js";
 import { OrderStore } from "./store.js";
-import type { Address, AgentStatus, DexSnapshot, Hex32, MatchedOrder, OrderReveal, QueuedOrder } from "./types.js";
+import type { AgentStatus, DexSnapshot, Hex32, OrderReveal, QueuedOrder } from "./types.js";
 
 export class NyxAgent {
   private readonly publicClient: PublicClient;
@@ -63,12 +65,31 @@ export class NyxAgent {
       throw new Error("NYX_BATCH_AUCTION is required before POST /orders can hash preimages");
     }
     const commitment = await hashOrder(this.publicClient, this.config.auctionAddress, order);
+    await this.assertSubmittedOrder(commitment, order);
     await this.store.upsert(commitment, {
       ...order,
       trader: getAddress(order.trader),
       sellToken: getAddress(order.sellToken),
     });
     return { commitment, status: "queued" };
+  }
+
+  private async assertSubmittedOrder(commitment: Hex32, order: OrderReveal): Promise<void> {
+    if (!this.config.auctionAddress) throw new Error("NYX_BATCH_AUCTION is not configured");
+
+    const onchain = await readOrder(this.publicClient, this.config.auctionAddress, commitment);
+    const submittedStatus = 1;
+    if (onchain.status !== submittedStatus) {
+      throw new Error("order commitment is not submitted on-chain");
+    }
+    if (
+      !sameAddress(onchain.trader, order.trader) ||
+      onchain.batchId !== order.batchId ||
+      !sameAddress(onchain.sellToken, order.sellToken) ||
+      onchain.sellAmount !== order.sellAmount
+    ) {
+      throw new Error("reveal does not match submitted on-chain order");
+    }
   }
 
   async runOnce(): Promise<Decision> {
@@ -119,6 +140,18 @@ export class NyxAgent {
       notionalWaiting: this.notionalWaitingX18(queue).toString(),
       notionalMax: this.config.notionalMaxX18.toString(),
       notionalUnit: "token1X18",
+      decision: {
+        side0X18: this.lastDecision?.side0X18.toString() ?? "0",
+        side1X18: this.lastDecision?.side1X18.toString() ?? "0",
+        imbalanceBps: this.lastDecision?.imbalanceBps ?? null,
+        dexSpreadOk: this.lastDecision?.dexSpreadOk ?? false,
+      },
+      config: {
+        imbalanceBps: this.config.imbalanceBps,
+        maxIntervalSeconds: this.config.maxIntervalSeconds,
+        dexSpreadBps: this.config.dexSpreadBps,
+        maxClearingDeviationBps: this.config.maxClearingDeviationBps,
+      },
       lastTx: this.lastTx,
       referencePriceX18: this.referencePriceX18?.toString() ?? null,
       secondsSinceLastClear: Math.max(0, Math.floor(Date.now() / 1000) - this.lastClearAt),
@@ -277,6 +310,18 @@ export class NyxAgent {
           queueDepth: decision.queueDepth,
           reasonCandidate:
             decision.reason == null ? null : { code: decision.reason, label: decision.label },
+          decision: {
+            side0X18: decision.side0X18.toString(),
+            side1X18: decision.side1X18.toString(),
+            imbalanceBps: decision.imbalanceBps,
+            dexSpreadOk: decision.dexSpreadOk,
+          },
+          config: {
+            imbalanceBps: this.config.imbalanceBps,
+            maxIntervalSeconds: this.config.maxIntervalSeconds,
+            dexSpreadBps: this.config.dexSpreadBps,
+            maxClearingDeviationBps: this.config.maxClearingDeviationBps,
+          },
           auctionConfigured: Boolean(this.config.auctionAddress),
           agentState: this.state,
         },
@@ -285,89 +330,6 @@ export class NyxAgent {
       ),
     );
   }
-}
-
-function buildComplementarySettlement(params: {
-  queue: QueuedOrder[];
-  referencePriceX18: bigint;
-  token0: Address;
-  token1: Address;
-  token0Decimals: number;
-  token1Decimals: number;
-  maxDeviationBps: number;
-}): { clearingPriceX18: bigint; matches: MatchedOrder[] } | null {
-  const sell0 = params.queue.filter((entry) => sameAddress(entry.order.sellToken, params.token0));
-  const sell1 = params.queue.filter((entry) => sameAddress(entry.order.sellToken, params.token1));
-
-  for (const left of sell0) {
-    const right = sell1.find((candidate) => {
-      const clearingPriceX18 = deriveClearingPriceX18(left.order, candidate.order, params);
-      if (clearingPriceX18 == null) return false;
-      if (!withinDeviation(clearingPriceX18, params.referencePriceX18, params.maxDeviationBps)) {
-        return false;
-      }
-
-      const leftBuy = preview(left.order, { ...params, clearingPriceX18 });
-      const rightBuy = preview(candidate.order, { ...params, clearingPriceX18 });
-      return (
-        leftBuy === candidate.order.sellAmount &&
-        rightBuy === left.order.sellAmount &&
-        leftBuy >= left.order.minBuyAmount &&
-        rightBuy >= candidate.order.minBuyAmount
-      );
-    });
-
-    if (!right) continue;
-    const clearingPriceX18 = deriveClearingPriceX18(left.order, right.order, params);
-    if (clearingPriceX18 == null) continue;
-    return {
-      clearingPriceX18,
-      matches: [
-        { commitment: left.commitment, order: left.order },
-        { commitment: right.commitment, order: right.order },
-      ],
-    };
-  }
-
-  return null;
-}
-
-function deriveClearingPriceX18(
-  sellToken0Order: OrderReveal,
-  sellToken1Order: OrderReveal,
-  params: { token0Decimals: number; token1Decimals: number },
-): bigint | null {
-  const sell0X18 = toX18(sellToken0Order.sellAmount, params.token0Decimals);
-  const sell1X18 = toX18(sellToken1Order.sellAmount, params.token1Decimals);
-  if (sell0X18 === 0n || sell1X18 === 0n) return null;
-  return (sell1X18 * 1_000000000000000000n) / sell0X18;
-}
-
-function withinDeviation(price: bigint, reference: bigint, maxDeviationBps: number): boolean {
-  if (reference === 0n) return false;
-  const deviation = (absDiff(price, reference) * 10_000n) / reference;
-  return deviation <= BigInt(maxDeviationBps);
-}
-
-function preview(
-  order: OrderReveal,
-  params: {
-    clearingPriceX18: bigint;
-    token0: Address;
-    token1: Address;
-    token0Decimals: number;
-    token1Decimals: number;
-  },
-): bigint {
-  return previewBuyAmount({
-    sellToken: order.sellToken,
-    sellAmount: order.sellAmount,
-    clearingPriceX18: params.clearingPriceX18,
-    token0: params.token0,
-    token1: params.token1,
-    token0Decimals: params.token0Decimals,
-    token1Decimals: params.token1Decimals,
-  });
 }
 
 function sameAddress(a: string, b: string): boolean {

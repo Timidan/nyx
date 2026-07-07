@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { ErrorIcon, InfoIcon, SuccessIcon } from "./Icons";
 
 type ToastVariant = "muted" | "settle" | "alert";
 
@@ -40,6 +41,13 @@ const ACCENT: Record<ToastVariant, { title: string }> = {
   muted: { title: "text-text" },
   settle: { title: "text-settle" },
   alert: { title: "text-alert" },
+};
+
+/** classic message-box icons: info / check / x */
+const VARIANT_ICON: Record<ToastVariant, ReactNode> = {
+  muted: <InfoIcon />,
+  settle: <SuccessIcon />,
+  alert: <ErrorIcon />,
 };
 
 /** "Order sealed" -> "order-sealed" for the message-box title bar. */
@@ -97,7 +105,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   ✕
                 </button>
               </div>
-              <div className="min-w-0 px-4 py-3">
+              <div className="flex min-w-0 gap-2.5 px-4 py-3">
+                <span aria-hidden="true" className="mt-0.5 shrink-0">
+                  {VARIANT_ICON[t.variant]}
+                </span>
+                <div className="min-w-0 flex-1">
                 <div className={`text-[0.875rem] font-medium ${accent.title}`}>
                   {t.title}
                 </div>
@@ -113,7 +125,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                         href={t.href}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-mono text-[0.75rem] text-navy underline hover:no-underline"
+                        className="font-mono text-[0.75rem] text-link underline hover:no-underline"
                       >
                         {t.hrefLabel ?? "receipt ↗"}
                       </a>
@@ -132,6 +144,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                     )}
                   </div>
                 )}
+                </div>
               </div>
             </div>
           );

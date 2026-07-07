@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Format
+        run: forge fmt --check
+        working-directory: contracts
+      - name: Test
+        run: forge test
+        working-directory: contracts
+
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13"
+          cache: pnpm
+          cache-dependency-path: agent/pnpm-lock.yaml
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        working-directory: agent
+      - name: Typecheck
+        run: pnpm typecheck
+        working-directory: agent
+      - name: Test
+        run: pnpm test
+        working-directory: agent
+      - name: Build
+        run: pnpm build
+        working-directory: agent
+      - name: Audit production dependencies
+        run: pnpm audit --prod
+        working-directory: agent
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        working-directory: web
+      - name: Build
+        run: pnpm build
+        working-directory: web
+      - name: Audit production dependencies
+        run: pnpm audit --prod
+        working-directory: web

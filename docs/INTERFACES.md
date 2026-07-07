@@ -1,18 +1,19 @@
-# Nyx — Frozen Interfaces (v1, Jul 6)
+# Nyx — Protocol & API reference
 
-Locked after Codex ideation. Backend implements exactly this; frontend wires
-against exactly this. Changes require updating this file first.
+The stable contract between the three components: the Solidity interface the
+contract implements, the reason-code table, and the agent's local HTTP API the
+frontend consumes. Changes land here first, then in code.
 
-## Scope decision (recorded)
+## Design notes
 
-**No ZK.** Sealed-bid commit-reveal batch auction driven by an autonomous
-agent. Rationale: the Crossed ZK codebase the original plan assumed does not
-exist; ~2 days remain; ZK is not a rubric item; the track is AI Agent.
-Privacy claim stated honestly: **orders are sealed from public chain observers
-until settlement** (the agent sees preimages; single-agent settlement is
-centralized for the demo; `cancelOrder` mitigates stuck funds).
+Nyx is a sealed-bid commit-reveal batch auction driven by an autonomous agent.
+Orders are **sealed from public chain observers until settlement**; the agent
+sees preimages in order to match, single-agent settlement is centralized in
+the current deployment, and `cancelOrder` guarantees an exit from escrow after
+the cancel delay. A ZK settlement layer can replace the reveal step without
+changing the order flow; the commitment and event model was shaped for that.
 
-## Chain facts (verified on-chain Jul 6)
+## Chain facts (verified on-chain)
 
 | Item | Value |
 |---|---|
@@ -25,54 +26,19 @@ centralized for the demo; `cancelOrder` mitigates stuck funds).
 | SwapRouter | `0x07032d47A1b9f8460cBeE9dC17c1d3E438693929` |
 | Second pair (same tokens) | `0xC5EAf0a5b0E6af9572a7B673f1d59659A69Cb896` |
 
-Integration hierarchy: **primary** — auction trades WBOT/BOUSDT itself and
-reads the reference price from the real BOT DEX pair. **Fallback** (if
-acquiring BOUSDT or wrapping WBOT proves fragile; timebox ~90 min) — auction
-trades two FaucetERC20 demo tokens via NyxAMMPair, but the agent still reads
-the real BOT DEX pair price every cycle as its reference input, stated
-honestly in the write-up.
+Token orientation: `NyxBatchAuction.token0 = WBOT` (18 decimals), `token1 =
+BOUSDT` (6 decimals); `referencePair` is the live BOUSDT/WBOT pair above and
+`clearingPriceX18` means normalized BOUSDT per WBOT. Note the DEX pair's own
+token order is reversed (BOUSDT is its token0); the contract normalizes.
 
-Implementation decision (Jul 6): **primary selected; fallback not used.**
-`NyxBatchAuction.token0 = WBOT`, `token1 = BOUSDT`, and `referencePair` is the
-real BOUSDT/WBOT pair above. `clearingPriceX18` means normalized BOUSDT per
-WBOT. Read-only verification found BOUSDT has 6 decimals, WBOT has 18 decimals,
-and the pair reserves were about 98.531658 BOUSDT / 10.160298162694176879 WBOT
-at verification time. WBOT bytecode contains WETH9-style `deposit()` and
-`withdraw(uint256)` selectors; `WETH9()` on the router returns the WBOT
-address. The published `SwapRouter` is verified as a Uniswap V3 SwapRouter, not
-a UniV2 router: `getAmountsOut` reverts, while V3 WBOT/BOUSDT pools exist at
-fee tiers 500, 3000, and 10000. Demo token prep should use tiny WBOT wraps and
-V3 `exactInputSingle` swaps; BOUSDT `mint` is role-restricted.
+Ecosystem quirks worth knowing: WBOT is WETH9-style (`deposit()` /
+`withdraw(uint256)`; the router's `WETH9()` returns it). The published
+`SwapRouter` is a Uniswap **V3** SwapRouter, not V2 (`getAmountsOut` reverts);
+V3 WBOT/BOUSDT pools exist at fee tiers 500/3000/10000 but carry little
+liquidity, so small-amount token prep is better served by a direct V2-style
+swap against the pair. `BOUSDT.mint` is role-restricted.
 
 ## Contracts
-
-### IFaucetERC20 (fallback path only)
-
-```solidity
-interface IFaucetERC20 {
-    event FaucetClaimed(address indexed account, uint256 amount);
-    function name() external view returns (string memory);
-    function symbol() external view returns (string memory);
-    function decimals() external view returns (uint8);
-    function faucet(address to) external;
-    function mint(address to, uint256 amount) external;
-}
-```
-
-### INyxAMMPair (fallback path only)
-
-```solidity
-interface INyxAMMPair {
-    event LiquidityAdded(address indexed provider, uint256 amount0, uint256 amount1);
-    event Swap(address indexed sender, address indexed tokenIn, uint256 amountIn, uint256 amountOut, address indexed to);
-    function token0() external view returns (address);
-    function token1() external view returns (address);
-    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
-    function quoteToken1PerToken0() external view returns (uint256 priceX18);
-    function addLiquidity(uint256 amount0, uint256 amount1) external returns (uint256 liquidity);
-    function swapExactIn(address tokenIn, uint256 amountIn, uint256 minAmountOut, address to) external returns (uint256 amountOut);
-}
-```
 
 ### INyxBatchAuction (core)
 
@@ -97,15 +63,18 @@ interface INyxBatchAuction {
     event OrderCancelled(uint64 indexed batchId, bytes32 indexed commitment, address indexed trader, address sellToken, uint256 refunded);
     event BatchSettled(uint64 indexed batchId, uint256 matchCount, uint256 clearingPriceX18, uint8 indexed reason, uint256 referencePriceX18, bytes32 settlementHash);
     event BatchOpened(uint64 indexed batchId, uint64 openedAt);
+    event AgentUpdateStarted(address indexed oldAgent, address indexed pendingAgent);
     event AgentUpdated(address indexed oldAgent, address indexed newAgent);
 
     function token0() external view returns (address);
     function token1() external view returns (address);
     function referencePair() external view returns (address);
     function agent() external view returns (address);
+    function pendingAgent() external view returns (address);
     function owner() external view returns (address);
     function currentBatchId() external view returns (uint64);
     function cancelDelaySeconds() external view returns (uint256);
+    function maxReferenceDeviationBps() external view returns (uint256);
 
     function submitOrder(uint64 batchId, bytes32 commitment, address sellToken, uint256 sellAmount) external;
     function settleBatch(uint64 batchId, uint256 clearingPriceX18, uint8 reason, MatchedOrder[] calldata orders) external returns (uint256 matchCount, bytes32 settlementHash);
@@ -116,23 +85,31 @@ interface INyxBatchAuction {
     function previewBuyAmount(address sellToken, uint256 sellAmount, uint256 clearingPriceX18) external view returns (uint256 buyAmount);
     function getOrder(bytes32 commitment) external view returns (address trader, uint64 batchId, address sellToken, uint256 sellAmount, uint64 submittedAt, uint8 status);
     function setAgent(address newAgent) external;
+    function acceptAgent() external;
 }
 ```
 
-## Reason codes (frozen)
+Production hardening in the current source requires `clearingPriceX18` to stay
+inside `maxReferenceDeviationBps` of `getReferencePriceX18()` at settlement
+time. `setAgent` starts a handoff by setting `pendingAgent`; the pending agent
+must call `acceptAgent` before it can settle batches.
+
+## Reason codes
 
 | Code | Meaning | UI copy |
 |---|---|---|
-| 0 | depth-threshold | "depth threshold" |
-| 1 | imbalance | "buy/sell imbalance at DEX midpoint" |
-| 2 | notional-wait | "notional wait limit" |
-| 3 | max-interval | "max interval" |
-| 4 | dex-spread-trigger | "favorable DEX spread" |
+| 0 | depth-threshold | "enough orders queued" |
+| 1 | imbalance | "buys and sells matched at market price" |
+| 2 | notional-wait | "enough value queued" |
+| 3 | max-interval | "time limit reached" |
+| 4 | dex-spread-trigger | "market moved in traders' favor" |
 
 ## Agent local API (frontend ↔ agent)
 
-CORS enabled for the frontend dev origin (http://localhost:5173) and
-configurable via env.
+CORS enabled for the frontend dev origin (http://localhost:5190 by default) and
+configurable via env. Public deployments should bind the agent behind TLS and
+enable `AGENT_REQUIRE_API_BEARER_TOKEN=true`, or enforce equivalent gateway
+authentication before forwarding `POST /orders`.
 
 ```
 POST /orders   — body: OrderReveal JSON (preimage), sent after the frontend
@@ -162,7 +139,7 @@ GET  /health   — process + RPC health
 | `notionalMax` | `string` | Configured notional threshold as a decimal integer in `notionalUnit`. |
 | `notionalUnit` | `string` | `token1X18`: token1-normalized X18 units. In the primary deployment, token1 is BOUSDT. |
 
-Additive v3 fields (frozen Jul 6 late — decision trace):
+Decision-trace fields (v3, additive):
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -177,11 +154,17 @@ Additive v3 fields (frozen Jul 6 late — decision trace):
 
 All optional for consumers; older agents may omit them.
 
-## Deployment artifacts (deployed Jul 6)
+## Deployment artifacts (BOT Chain testnet)
+
+> This live demo instance was deployed **before** the immutable clearing-price
+> deviation guard and the two-step `setAgent` / `acceptAgent` rotation were
+> added to the contract. Its behaviour predates those checks; the interface
+> above reflects current source. Fresh deployments include both — see
+> [DEPLOY.md](DEPLOY.md).
 
 | Item | Value |
 |---|---|
-| NyxBatchAuction | `0x4aD7971C36dae9BF9c81AFC46AaF9A60F6a14777` |
+| NyxBatchAuction | `0xc0405e50d1bf816b9fb1a741cb46941828c378ea` |
 | Deploy tx | `0x4d255ffd772b5c0f7d399a9c6c0ce3accfc459eb36adb72332ba04f75b5e9917` |
 | Deployer | `0xcED560b8C815116C05F8C1045F10f0339bE11D60` |
 | Agent wallet | `0x253CbCB3A6221E2542516E5CB765C754bf3695b0` |

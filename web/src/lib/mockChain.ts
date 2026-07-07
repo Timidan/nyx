@@ -83,6 +83,14 @@ class MockChain {
       secsSinceLastClear: this.secsSinceLastClear,
       dexPrice: this.dexPrice,
       pair: PAIR,
+      // simulated decision trace (/status v3 equivalent)
+      trace: {
+        imbalanceBps:
+          this.depth > 0 ? ((this.nextBatchId * 37) % 9000) + 400 : null,
+        imbalanceLimitBps: 1500,
+        maxIntervalSeconds: 60,
+        dexSpreadOk: this.dexPrice > 1.045,
+      },
     };
   }
 

@@ -110,6 +110,36 @@ export async function hashOrder(
   })) as Hex32;
 }
 
+export async function readOrder(
+  publicClient: PublicClient,
+  auctionAddress: Address,
+  commitment: Hex32,
+): Promise<{
+  trader: Address;
+  batchId: bigint;
+  sellToken: Address;
+  sellAmount: bigint;
+  submittedAt: bigint;
+  status: number;
+}> {
+  const [trader, batchId, sellToken, sellAmount, submittedAt, status] =
+    (await publicClient.readContract({
+      address: auctionAddress,
+      abi: nyxBatchAuctionAbi,
+      functionName: "getOrder",
+      args: [commitment],
+    })) as [Address, bigint, Address, bigint, bigint, number];
+
+  return {
+    trader: getAddress(trader),
+    batchId,
+    sellToken: getAddress(sellToken),
+    sellAmount,
+    submittedAt,
+    status: Number(status),
+  };
+}
+
 export async function readSubmittedStatuses(
   publicClient: PublicClient,
   config: AgentConfig,

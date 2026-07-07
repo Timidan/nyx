@@ -2,6 +2,30 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Theme boot: runs before first paint so there is no flash of the wrong
+      // theme. Order: ?theme= URL override -> localStorage -> OS preference.
+      (function () {
+        var theme = "light";
+        try {
+          var fromUrl = new URLSearchParams(window.location.search).get("theme");
+          var stored = localStorage.getItem("nyx.theme");
+          if (fromUrl === "dark" || fromUrl === "light") {
+            theme = fromUrl;
+            localStorage.setItem("nyx.theme", theme);
+          } else if (stored === "dark" || stored === "light") {
+            theme = stored;
+          } else if (
+            window.matchMedia("(prefers-color-scheme: dark)").matches
+          ) {
+            theme = "dark";
+          }
+        } catch (e) {
+          /* storage blocked: fall through to light */
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
     <link
       rel="icon"
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23D8D5CE'/><rect x='4' y='5' width='22' height='22' fill='%23FDFDFB' stroke='%230A0A0A' stroke-width='2'/><rect x='5' y='6' width='20' height='6' fill='%231418A8'/><rect x='8' y='28' width='22' height='2' fill='%230A0A0A'/><rect x='28' y='8' width='2' height='20' fill='%230A0A0A'/></svg>"

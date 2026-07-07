@@ -86,7 +86,7 @@ export function ConnectButton() {
               key={connector.uid}
               type="button"
               onClick={() => void connectWith(connector)}
-              className="block w-full px-3 py-2 text-left text-[0.875rem] text-text hover:bg-navy hover:text-white"
+              className="tap95 block w-full px-3 py-2 text-left text-[0.875rem] text-text hover:bg-navy hover:text-white"
             >
               {connector.name}
             </button>

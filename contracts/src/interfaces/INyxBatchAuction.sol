@@ -47,15 +47,18 @@ interface INyxBatchAuction {
         bytes32 settlementHash
     );
     event BatchOpened(uint64 indexed batchId, uint64 openedAt);
+    event AgentUpdateStarted(address indexed oldAgent, address indexed pendingAgent);
     event AgentUpdated(address indexed oldAgent, address indexed newAgent);
 
     function token0() external view returns (address);
     function token1() external view returns (address);
     function referencePair() external view returns (address);
     function agent() external view returns (address);
+    function pendingAgent() external view returns (address);
     function owner() external view returns (address);
     function currentBatchId() external view returns (uint64);
     function cancelDelaySeconds() external view returns (uint256);
+    function maxReferenceDeviationBps() external view returns (uint256);
 
     function submitOrder(uint64 batchId, bytes32 commitment, address sellToken, uint256 sellAmount)
         external;
@@ -85,4 +88,5 @@ interface INyxBatchAuction {
             uint8 status
         );
     function setAgent(address newAgent) external;
+    function acceptAgent() external;
 }

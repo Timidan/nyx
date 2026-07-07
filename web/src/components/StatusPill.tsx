@@ -21,8 +21,16 @@ const STATE_META: Record<AgentStatus, { label: string; dot: string; text: string
 };
 
 export function StatusPill() {
-  const { data } = useAgentState();
-  if (!data) return null;
+  const { data, isLoading } = useAgentState();
+  if (!data) {
+    if (!isLoading) return null;
+    return (
+      <div className="sunken95 flex items-center gap-2.5 px-3 py-1.5">
+        <span className="h-2.5 w-2.5 animate-pulse border border-border bg-surface-2 motion-reduce:animate-none" />
+        <span className="h-3 w-20 animate-pulse bg-surface-2 motion-reduce:animate-none" />
+      </div>
+    );
+  }
 
   const meta = STATE_META[data.status];
   const reasonLine =
@@ -37,7 +45,7 @@ export function StatusPill() {
           <span className="absolute inline-flex h-full w-full animate-ping bg-signal opacity-60 motion-reduce:hidden" />
         )}
         <span
-          className={`relative inline-flex h-2.5 w-2.5 border border-border ${meta.dot}`}
+          className={`crt-glow relative inline-flex h-2.5 w-2.5 border border-border ${meta.dot} ${meta.text}`}
         />
       </span>
       <span className={`font-mono text-[0.75rem] font-medium ${meta.text}`}>

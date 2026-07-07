@@ -5,11 +5,14 @@ import type { ReactNode } from "react";
  *  target those by role/name). */
 export function Window({
   title,
+  icon,
   children,
   className = "",
   bodyClassName = "p-5",
 }: {
   title: string;
+  /** 16px pixel-art title-bar icon (see Icons.tsx) */
+  icon?: ReactNode;
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
@@ -18,8 +21,9 @@ export function Window({
     <section className={`border-2 border-border bg-surface shadow-win ${className}`}>
       <div
         aria-hidden="true"
-        className="select-none border-b-2 border-border bg-navy px-3 py-1.5"
+        className="flex select-none items-center gap-2 border-b-2 border-border bg-navy px-3 py-1"
       >
+        {icon}
         <span className="font-pixel text-[0.6875rem] leading-none text-white">
           {title}
         </span>

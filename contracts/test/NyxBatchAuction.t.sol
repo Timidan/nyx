@@ -128,6 +128,7 @@ contract NyxBatchAuctionTest {
         uint256 referencePriceX18,
         bytes32 settlementHash
     );
+    event AgentUpdateStarted(address indexed oldAgent, address indexed pendingAgent);
 
     MockERC20 private wbot;
     MockERC20 private bousdt;
@@ -152,7 +153,7 @@ contract NyxBatchAuctionTest {
 
         vm.prank(owner);
         auction = new NyxBatchAuction(
-            address(wbot), address(bousdt), address(referencePair), agent, 2 days
+            address(wbot), address(bousdt), address(referencePair), agent, 2 days, 1_000
         );
 
         wbot.mint(alice, 3e18);
@@ -167,7 +168,7 @@ contract NyxBatchAuctionTest {
         vm.stopPrank();
     }
 
-    function testReferencePriceNormalizesReversedDexPairDecimals() external {
+    function testReferencePriceNormalizesReversedDexPairDecimals() external view {
         assertEq(auction.getReferencePriceX18(), PRICE_10_BOUSDT_PER_WBOT_X18);
         assertEq(
             auction.previewBuyAmount(address(wbot), ONE_WBOT, PRICE_10_BOUSDT_PER_WBOT_X18),
@@ -181,9 +182,9 @@ contract NyxBatchAuctionTest {
 
     function testSubmitRevealSettleHappyPathEmitsEventsAndTransfersFunds() external {
         INyxBatchAuction.OrderReveal memory aliceOrder =
-            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT, bytes32("alice"));
+            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT, salt("alice"));
         INyxBatchAuction.OrderReveal memory bobOrder =
-            order(bob, 1, address(bousdt), TEN_BOUSDT, ONE_WBOT, bytes32("bob"));
+            order(bob, 1, address(bousdt), TEN_BOUSDT, ONE_WBOT, salt("bob"));
         bytes32 aliceCommitment = auction.hashOrder(aliceOrder);
         bytes32 bobCommitment = auction.hashOrder(bobOrder);
 
@@ -216,12 +217,12 @@ contract NyxBatchAuctionTest {
 
     function testHashMismatchRejectsSettlement() external {
         INyxBatchAuction.OrderReveal memory committed =
-            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT, bytes32("alice"));
+            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT, salt("alice"));
         bytes32 commitment = auction.hashOrder(committed);
         submit(alice, commitment, address(wbot), ONE_WBOT);
 
         INyxBatchAuction.OrderReveal memory wrongSalt =
-            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT, bytes32("wrong"));
+            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT, salt("wrong"));
         INyxBatchAuction.MatchedOrder[] memory orders = new INyxBatchAuction.MatchedOrder[](1);
         orders[0] = INyxBatchAuction.MatchedOrder(commitment, wrongSalt);
 
@@ -231,18 +232,18 @@ contract NyxBatchAuctionTest {
     }
 
     function testWrongBatchRejectsSubmitAndReveal() external {
-        bytes32 commitment = bytes32("future");
+        bytes32 commitment = salt("future");
         vm.expectRevert(NyxBatchAuction.WrongBatch.selector);
         vm.prank(alice);
         auction.submitOrder(2, commitment, address(wbot), ONE_WBOT);
 
         INyxBatchAuction.OrderReveal memory committed =
-            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT, bytes32("alice"));
+            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT, salt("alice"));
         bytes32 goodCommitment = auction.hashOrder(committed);
         submit(alice, goodCommitment, address(wbot), ONE_WBOT);
 
         INyxBatchAuction.OrderReveal memory wrongBatch =
-            order(alice, 2, address(wbot), ONE_WBOT, TEN_BOUSDT, bytes32("alice"));
+            order(alice, 2, address(wbot), ONE_WBOT, TEN_BOUSDT, salt("alice"));
         INyxBatchAuction.MatchedOrder[] memory orders = new INyxBatchAuction.MatchedOrder[](1);
         orders[0] = INyxBatchAuction.MatchedOrder(goodCommitment, wrongBatch);
 
@@ -253,7 +254,7 @@ contract NyxBatchAuctionTest {
 
     function testCancelAfterDelayRefundsEscrowAndEmitsEvent() external {
         INyxBatchAuction.OrderReveal memory aliceOrder =
-            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT, bytes32("alice"));
+            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT, salt("alice"));
         bytes32 commitment = auction.hashOrder(aliceOrder);
         submit(alice, commitment, address(wbot), ONE_WBOT);
 
@@ -274,9 +275,9 @@ contract NyxBatchAuctionTest {
 
     function testSettlementRejectsOrdersBelowMinBuyAmount() external {
         INyxBatchAuction.OrderReveal memory aliceOrder =
-            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT + 1, bytes32("alice"));
+            order(alice, 1, address(wbot), ONE_WBOT, TEN_BOUSDT + 1, salt("alice"));
         INyxBatchAuction.OrderReveal memory bobOrder =
-            order(bob, 1, address(bousdt), TEN_BOUSDT, ONE_WBOT, bytes32("bob"));
+            order(bob, 1, address(bousdt), TEN_BOUSDT, ONE_WBOT, salt("bob"));
         bytes32 aliceCommitment = auction.hashOrder(aliceOrder);
         bytes32 bobCommitment = auction.hashOrder(bobOrder);
         submit(alice, aliceCommitment, address(wbot), ONE_WBOT);
@@ -291,6 +292,25 @@ contract NyxBatchAuctionTest {
         auction.settleBatch(1, PRICE_10_BOUSDT_PER_WBOT_X18, 0, orders);
     }
 
+    function testSettlementRejectsClearingPriceOutsideReferenceBand() external {
+        INyxBatchAuction.OrderReveal memory aliceOrder =
+            order(alice, 1, address(wbot), ONE_WBOT, 0, salt("alice"));
+        INyxBatchAuction.OrderReveal memory bobOrder =
+            order(bob, 1, address(bousdt), TEN_BOUSDT, 0, salt("bob"));
+        bytes32 aliceCommitment = auction.hashOrder(aliceOrder);
+        bytes32 bobCommitment = auction.hashOrder(bobOrder);
+        submit(alice, aliceCommitment, address(wbot), ONE_WBOT);
+        submit(bob, bobCommitment, address(bousdt), TEN_BOUSDT);
+
+        INyxBatchAuction.MatchedOrder[] memory orders = new INyxBatchAuction.MatchedOrder[](2);
+        orders[0] = INyxBatchAuction.MatchedOrder(aliceCommitment, aliceOrder);
+        orders[1] = INyxBatchAuction.MatchedOrder(bobCommitment, bobOrder);
+
+        vm.expectRevert(NyxBatchAuction.ClearingPriceDeviationTooHigh.selector);
+        vm.prank(agent);
+        auction.settleBatch(1, 12e18, 0, orders);
+    }
+
     function testOnlyAgentCanSettleAndOnlyOwnerCanUpdateAgent() external {
         INyxBatchAuction.MatchedOrder[] memory orders = new INyxBatchAuction.MatchedOrder[](0);
         vm.expectRevert(NyxBatchAuction.OnlyAgent.selector);
@@ -301,9 +321,21 @@ contract NyxBatchAuctionTest {
         vm.prank(mallory);
         auction.setAgent(mallory);
 
+        vm.expectEmit(true, true, false, true, address(auction));
+        emit AgentUpdateStarted(agent, mallory);
         vm.prank(owner);
         auction.setAgent(mallory);
+        assertEq(auction.agent(), agent);
+        assertEq(auction.pendingAgent(), mallory);
+
+        vm.expectRevert(NyxBatchAuction.OnlyPendingAgent.selector);
+        vm.prank(bob);
+        auction.acceptAgent();
+
+        vm.prank(mallory);
+        auction.acceptAgent();
         assertEq(auction.agent(), mallory);
+        assertEq(auction.pendingAgent(), address(0));
     }
 
     function submit(address trader, bytes32 commitment, address sellToken, uint256 sellAmount)
@@ -321,7 +353,7 @@ contract NyxBatchAuctionTest {
         address sellToken,
         uint256 sellAmount,
         uint256 minBuyAmount,
-        bytes32 salt
+        bytes32 salt_
     ) internal pure returns (INyxBatchAuction.OrderReveal memory) {
         return INyxBatchAuction.OrderReveal({
             trader: trader,
@@ -329,13 +361,17 @@ contract NyxBatchAuctionTest {
             sellToken: sellToken,
             sellAmount: sellAmount,
             minBuyAmount: minBuyAmount,
-            salt: salt
+            salt: salt_
         });
     }
 
     function assertOrderStatus(bytes32 commitment, uint8 expectedStatus) internal view {
         (,,,,, uint8 status) = auction.getOrder(commitment);
         assertEq(status, expectedStatus);
+    }
+
+    function salt(string memory value) internal pure returns (bytes32) {
+        return keccak256(bytes(value));
     }
 
     function assertEq(uint256 actual, uint256 expected) internal pure {

@@ -42,6 +42,20 @@ export interface AgentState {
   secsSinceLastClear: number | null;
   dexPrice: number | null;
   pair: string;
+  /** decision-trace readings (/status v3); absent fields hide their rows */
+  trace?: DecisionTrace;
+}
+
+/** Live inputs to the agent's next-settlement decision, humanized units. */
+export interface DecisionTrace {
+  /** side imbalance in bps; null = one side empty; undefined = not provided */
+  imbalanceBps?: number | null;
+  /** imbalance trigger threshold (bps) */
+  imbalanceLimitBps?: number;
+  /** liveness backstop (seconds) */
+  maxIntervalSeconds?: number;
+  /** whether a queued order clears favorably vs the DEX reference */
+  dexSpreadOk?: boolean;
 }
 
 /** Form payload for sealing an order. Amount is denominated in the base

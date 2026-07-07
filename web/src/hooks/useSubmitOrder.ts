@@ -8,6 +8,7 @@ import {
 } from "wagmi/actions";
 import { postOrderReveal } from "../lib/agentApi";
 import { botChain } from "../lib/chain";
+import { recordOrder } from "../lib/orderStore";
 import { publicClient, wagmiConfig } from "../lib/clients";
 import { IS_LIVE, nyxBatchAuctionAbi, requireAuctionAddress } from "../lib/config";
 import { mockChain } from "../lib/mockChain";
@@ -134,7 +135,22 @@ async function sealLiveOrder(
     revealDelivered = false;
   }
 
+  // Track this wallet's order locally for the my-orders panel. The reveal
+  // preimage is kept only while its delivery still needs a retry.
+  recordOrder(account.address, {
+    commitment,
+    batchId: order.batchId.toString(),
+    side,
+    amount,
+    limitPrice,
+    txHash,
+    revealDelivered,
+    reveal: revealDelivered ? null : reveal,
+    createdAt: Date.now(),
+  });
+
   void qc.invalidateQueries({ queryKey: agentStateQueryKey });
+  void qc.invalidateQueries({ queryKey: ["myOrders"] });
   return { commitment, side, txHash, revealDelivered, reveal };
 }
 

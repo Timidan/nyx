@@ -1,7 +1,15 @@
-# Nyx Backend Deploy Handoff
+# Nyx Deploy Runbook
 
 All commands assume the repo root is the current directory and that private keys
 are exported in the shell, not stored in files.
+
+> The current live instance
+> [`0xc0405e…378ea`](https://scan.bohr.life/address/0xc0405e50d1bf816b9fb1a741cb46941828c378ea)
+> was deployed from current source and includes the immutable clearing-price
+> deviation guard and two-step agent rotation. An earlier instance
+> (`0x4aD7971C…4777`) predates both; because `maxReferenceDeviationBps` and
+> `cancelDelaySeconds` are constructor-immutable, upgrading means redeploying
+> with this runbook, not retrofitting.
 
 ## 1. Deploy NyxBatchAuction
 
@@ -10,7 +18,7 @@ set -a
 source .env
 set +a
 export DEPLOYER_PRIVATE_KEY=0x...
-export AGENT_PRIVATE_KEY=0x...
+export MAX_CLEARING_DEVIATION_BPS=1000   # optional; constructor default is 1000
 
 cd contracts
 forge test
@@ -20,6 +28,12 @@ forge script script/Deploy.s.sol:Deploy \
   --broadcast
 ```
 
+`Deploy.s.sol` reads `WBOT`, `BOUSDT`, and `BOT_DEX_PAIR` from `.env` (as
+`token0`, `token1`, and `referencePair`), reads `MAX_CLEARING_DEVIATION_BPS`,
+hardcodes a **2-day** cancel delay, and sets the **deployer** as the contract's
+initial `agent`. `maxReferenceDeviationBps` and `cancelDelaySeconds` are
+immutable — choose them at deploy time.
+
 Copy the deployed `NyxBatchAuction` address from the forge output:
 
 ```bash
@@ -27,20 +41,44 @@ cd ..
 export NYX_BATCH_AUCTION=0x...
 ```
 
-## 2. Post-Deploy Agent Config
+## 2. Rotate Settlement Authority To The Agent Wallet (two-step)
+
+The constructor made the **deployer** the initial `agent`. The documented setup
+runs the agent process from a separate wallet (`AGENT_ADDRESS` /
+`AGENT_PRIVATE_KEY`), so a fresh deployment must hand settlement authority over
+with the two-step rotation **before the agent process can settle**. The
+**owner (== deployer)** signs `setAgent`; the **incoming agent wallet** signs
+`acceptAgent`. Authority only moves once the pending agent accepts.
 
 ```bash
+# derive the agent address from its key if it is not already exported
+export AGENT_ADDRESS="${AGENT_ADDRESS:-$(cast wallet address --private-key "$AGENT_PRIVATE_KEY")}"
+
+# step 1 — owner (== deployer) nominates the agent wallet
 cast send "$NYX_BATCH_AUCTION" \
   "setAgent(address)" "$AGENT_ADDRESS" \
   --rpc-url "$RPC_URL" \
   --private-key "$DEPLOYER_PRIVATE_KEY"
+
+# step 2 — the agent wallet accepts; settlement authority moves only now
+cast send "$NYX_BATCH_AUCTION" \
+  "acceptAgent()" \
+  --rpc-url "$RPC_URL" \
+  --private-key "$AGENT_PRIVATE_KEY"
 ```
 
-Confirm:
+If you intend the deployer key to also be the agent, skip this step — the
+deployer is already the agent. The same two commands perform any later rotation
+(owner nominates, new agent accepts).
+
+Confirm — after rotation `agent()` is the agent wallet and `pendingAgent()` is
+the zero address:
 
 ```bash
 cast call "$NYX_BATCH_AUCTION" "agent()(address)" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" "pendingAgent()(address)" --rpc-url "$RPC_URL"
 cast call "$NYX_BATCH_AUCTION" "getReferencePriceX18()(uint256)" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" "maxReferenceDeviationBps()(uint256)" --rpc-url "$RPC_URL"
 ```
 
 ## 3. Start The Agent
@@ -53,6 +91,11 @@ source .env
 set +a
 export NYX_BATCH_AUCTION=0x...
 export AGENT_PRIVATE_KEY=0x...
+export AGENT_HOST=127.0.0.1
+export CORS_ORIGIN=http://localhost:5190
+# For public deployments, put the agent behind TLS and enable:
+# export AGENT_REQUIRE_API_BEARER_TOKEN=true
+# export AGENT_API_BEARER_TOKEN="$(openssl rand -hex 32)"
 
 cd agent
 npm_config_cache=/tmp/npm-cache npx --yes pnpm@9.15.9 install --store-dir /tmp/pnpm-store
@@ -176,3 +219,35 @@ The agent should simulate, sign with `AGENT_PRIVATE_KEY`, and send
 curl -sS http://localhost:8787/status
 cast call "$NYX_BATCH_AUCTION" "currentBatchId()(uint64)" --rpc-url "$RPC_URL"
 ```
+
+## 5. One-Command Demo Round
+
+With the agent already running on `:8787`, run one seeded batch from the repo
+root:
+
+```bash
+export DEPLOYER_PRIVATE_KEY=0x...
+scripts/demo-round.sh --wbot-size 10000000000000000 --price-slack-bps 0 --reason pair
+```
+
+Usage:
+
+```bash
+scripts/demo-round.sh [--wbot-size WEI] [--price-slack-bps BPS] [--reason pair|depth|notional|spread] [--agent-url URL]
+```
+
+The script sources `.env`, reads `NYX_BATCH_AUCTION`, wraps tiny WBOT, swaps a
+small WBOT amount through the V3 router for BOUSDT, approves the auction,
+submits exact-conserving commitments, POSTs the reveals to the local agent, and
+polls until it can print the settlement tx.
+
+Reason targets:
+
+- `pair` submits one exact complementary pair.
+- `depth` submits enough exact pairs to reach `DEPTH_MIN`.
+- `notional` sizes the pair above `NOTIONAL_MAX_X18` when `--wbot-size` is not
+  provided.
+- `spread` lowers the clearing price within `MAX_CLEARING_DEVIATION_BPS` and
+  relaxes min-buy values so `decision.dexSpreadOk` can become true. The agent's
+  reason priority still applies, so `depth` or `imbalance` may win first if the
+  live config says they should.

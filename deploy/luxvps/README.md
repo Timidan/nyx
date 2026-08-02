@@ -31,6 +31,9 @@ mkdir -p /home/agentops/nyx
 install -d -m 700 /home/agentops/nyx/state
 install -m 600 nyx-agent.env.example /home/agentops/nyx/nyx-agent.env
 install -m 600 /approved/source/nyx-agent-auth.conf /home/agentops/nyx/nyx-agent-auth.conf
+# Compose file-backed secrets retain host ownership. Before starting the
+# unprivileged Nginx container, set group 101 and mode 0640 through the scoped
+# host-operations workflow so UID/GID 101 can read this one mounted file.
 install -m 600 compose.env.example /home/agentops/nyx/compose.env
 docker run --rm -v /home/agentops/nyx/state:/state alpine:3.21 \
   chown 10001:10001 /state

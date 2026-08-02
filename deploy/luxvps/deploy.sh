@@ -113,8 +113,11 @@ fi
 
 if [[ -f "$auth_snippet" ]]; then
   auth_mode=$(stat -c '%a' "$auth_snippet" 2>/dev/null || true)
+  auth_gid=$(stat -c '%g' "$auth_snippet" 2>/dev/null || true)
   [[ "$auth_mode" =~ ^[0-7]+$ ]] || die "cannot stat auth snippet: $auth_snippet"
-  (( (8#$auth_mode & 077) == 0 )) || die "$auth_snippet must not be group/other-readable"
+  if [[ "$auth_mode" != 600 && ! ( "$auth_mode" == 640 && "$auth_gid" == 101 ) ]]; then
+    die "$auth_snippet must be 0600 or 0640 with the Nginx group (GID 101)"
+  fi
   grep -Eq '^[[:space:]]*proxy_set_header[[:space:]]+Authorization[[:space:]]+' "$auth_snippet" \
     || die "$auth_snippet does not define the Authorization upstream header"
   log "agent auth snippet: present (directive checked; value withheld)"

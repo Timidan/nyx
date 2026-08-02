@@ -59,6 +59,7 @@ services:
       nyx-agent:
         condition: service_healthy
     init: true
+    user: "101:101"
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777

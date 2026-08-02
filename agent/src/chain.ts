@@ -14,6 +14,7 @@ import type { AgentConfig } from "./config.js";
 import type { Address, DexSnapshot, Hex32, MatchedOrder, OrderReveal, TokenInfo } from "./types.js";
 
 const MAX_RPC_LOG_BLOCK_RANGE = 5_000n;
+const LOG_SCAN_CONCURRENCY = 8;
 
 type AuctionEventLog = {
   args: { commitment?: Hex32; reason?: bigint | number };
@@ -194,15 +195,21 @@ export async function readLatestBatchSettledReason(
 
   const latestBlock = await publicClient.getBlockNumber();
   const ranges = splitBlockRange(config.fromBlock, latestBlock).reverse();
-  for (const range of ranges) {
-    const chunk = await publicClient.getContractEvents({
-      address: config.auctionAddress,
-      abi: nyxBatchAuctionAbi,
-      eventName: "BatchSettled",
-      fromBlock: range.fromBlock,
-      toBlock: range.toBlock,
-    });
-    const settled = chunk as unknown as AuctionEventLog[];
+  for (let offset = 0; offset < ranges.length; offset += LOG_SCAN_CONCURRENCY) {
+    const settled = (
+      await Promise.all(
+        ranges.slice(offset, offset + LOG_SCAN_CONCURRENCY).map(async (range) => {
+          const chunk = await publicClient.getContractEvents({
+            address: config.auctionAddress,
+            abi: nyxBatchAuctionAbi,
+            eventName: "BatchSettled",
+            fromBlock: range.fromBlock,
+            toBlock: range.toBlock,
+          });
+          return chunk as unknown as AuctionEventLog[];
+        }),
+      )
+    ).flat();
     const latest = settled.reduce<AuctionEventLog | null>((best, log) => {
       if (!best) return log;
       const bestBlock = best.blockNumber ?? 0n;

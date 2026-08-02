@@ -1,0 +1,61 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:22.23.1-bookworm-slim
+ARG PNPM_VERSION=9.15.9
+
+FROM ${NODE_IMAGE} AS base
+
+ARG PNPM_VERSION=9.15.9
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH
+
+RUN corepack enable \
+    && corepack prepare pnpm@${PNPM_VERSION} --activate
+
+WORKDIR /app
+
+FROM base AS dependencies
+
+# The build context is the repository's agent/ directory. Copy only manifests
+# before installing so source-only edits do not invalidate the dependency layer.
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+FROM dependencies AS build
+
+COPY tsconfig.json ./
+COPY src ./src
+RUN pnpm build
+
+FROM dependencies AS production-dependencies
+
+RUN pnpm prune --prod
+
+FROM ${NODE_IMAGE} AS runtime
+
+ENV NODE_ENV=production \
+    HOME=/tmp \
+    TMPDIR=/tmp
+
+WORKDIR /app
+
+RUN groupadd --system --gid 10001 nyx \
+    && useradd --system --uid 10001 --gid 10001 \
+        --home-dir /nonexistent --shell /usr/sbin/nologin nyx \
+    && install -d -o 10001 -g 10001 -m 0700 /var/lib/nyx-agent
+
+COPY --from=production-dependencies --chown=10001:10001 /app/node_modules ./node_modules
+COPY --from=build --chown=10001:10001 /app/dist ./dist
+COPY --from=build --chown=10001:10001 /app/package.json ./package.json
+
+VOLUME ["/var/lib/nyx-agent"]
+
+USER 10001:10001
+
+EXPOSE 8787
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["node", "-e", "fetch('http://127.0.0.1:8787/health').then(async r => { if (!r.ok || !(await r.json()).ok) process.exit(1) }).catch(() => process.exit(1))"]
+
+ENTRYPOINT ["node", "dist/index.js"]

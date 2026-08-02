@@ -1,0 +1,90 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:22.23.1-bookworm-slim
+ARG PNPM_VERSION=9.15.9
+
+FROM ${NODE_IMAGE} AS build
+
+ARG PNPM_VERSION=9.15.9
+ARG VITE_AGENT_API=/agent
+ARG VITE_AUCTION_ADDRESS
+ARG VITE_REQUIRE_LIVE=true
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    VITE_AGENT_API=${VITE_AGENT_API} \
+    VITE_AUCTION_ADDRESS=${VITE_AUCTION_ADDRESS} \
+    VITE_REQUIRE_LIVE=${VITE_REQUIRE_LIVE}
+
+RUN corepack enable \
+    && corepack prepare pnpm@${PNPM_VERSION} --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# The checked-in web lockfile records these overrides, while pnpm 9 reads
+# overrides from package.json. Materialize the same metadata in the ephemeral
+# build manifest so `--frozen-lockfile` remains strict without editing source.
+RUN node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("package.json","utf8")); p.pnpm={...(p.pnpm||{}),overrides:{"uuid@<11.1.1":"11.1.1","ws@>=8.0.0 <8.21.0":"8.21.0"}}; fs.writeFileSync("package.json",`${JSON.stringify(p,null,2)}\n`);'
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
+
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
+
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# nginx-unprivileged listens on 8080. The sidecar owns the `/agent` rewrite so
+# Caddy can proxy the whole host without losing the legacy Nginx semantics:
+# exact `/agent/orders` auth forwarding, Origin clearing, body limit, and rate
+# limit. The path fallback keeps `/app` usable without a router dependency.
+RUN printf '%s\n' \
+    'limit_req_zone $http_x_forwarded_for zone=nyx_agent_orders:10m rate=12r/m;' \
+    'server {' \
+    '    listen 8080;' \
+    '    listen [::]:8080;' \
+    '    server_name _;' \
+    '    root /usr/share/nginx/html;' \
+    '    index index.html;' \
+    '    client_max_body_size 64k;' \
+    '    add_header X-Content-Type-Options "nosniff" always;' \
+    '    add_header Referrer-Policy "strict-origin-when-cross-origin" always;' \
+    '    location = /agent {' \
+    '        return 308 /agent/;' \
+    '    }' \
+    '    location = /agent/orders {' \
+    '        limit_req zone=nyx_agent_orders burst=20 nodelay;' \
+    '        limit_req_status 429;' \
+    '        proxy_pass http://nyx-agent:8787/orders;' \
+    '        proxy_http_version 1.1;' \
+    '        proxy_set_header Host $host;' \
+    '        proxy_set_header X-Forwarded-For $http_x_forwarded_for;' \
+    '        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;' \
+    '        include /run/secrets/nyx-agent-auth.conf;' \
+    '        proxy_set_header Origin "";' \
+    '        proxy_read_timeout 30s;' \
+    '        proxy_send_timeout 30s;' \
+    '    }' \
+    '    location /agent/ {' \
+    '        proxy_pass http://nyx-agent:8787/;' \
+    '        proxy_http_version 1.1;' \
+    '        proxy_set_header Host $host;' \
+    '        proxy_set_header X-Forwarded-For $http_x_forwarded_for;' \
+    '        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;' \
+    '        proxy_read_timeout 30s;' \
+    '        proxy_send_timeout 30s;' \
+    '    }' \
+    '    location / {' \
+    '        try_files $uri $uri/ /index.html;' \
+    '    }' \
+    '    location ~* \.(?:css|js|svg|png|jpg|jpeg|webp|ico|woff2?)$ {' \
+    '        try_files $uri =404;' \
+    '        add_header Cache-Control "public, max-age=2592000, immutable" always;' \
+    '    }' \
+    '}' > /etc/nginx/conf.d/default.conf
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]

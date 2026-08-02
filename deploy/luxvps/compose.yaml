@@ -1,0 +1,94 @@
+name: nyx
+
+services:
+  nyx-agent:
+    build:
+      context: ../../agent
+      dockerfile: ../deploy/luxvps/Dockerfile.agent
+      args:
+        NODE_IMAGE: node:22.23.1-bookworm-slim
+        PNPM_VERSION: 9.15.9
+    env_file:
+      - path: ${NYX_AGENT_ENV_FILE:?set NYX_AGENT_ENV_FILE to a mode-600 secret file}
+        required: true
+    environment:
+      NODE_ENV: production
+      AGENT_HOST: 0.0.0.0
+      AGENT_PORT: "8787"
+      ORDER_STORE_PATH: /var/lib/nyx-agent/orders.json
+      CORS_ORIGIN: ${NYX_CORS_ORIGIN:?set NYX_CORS_ORIGIN to the public Nyx origin}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "10001:10001"
+    stop_grace_period: 20s
+    volumes:
+      - type: bind
+        source: ${NYX_STATE_DIRECTORY_HOST:?set NYX_STATE_DIRECTORY_HOST to the persistent state directory}
+        target: /var/lib/nyx-agent
+    expose:
+      - "8787"
+    networks:
+      public_proxy:
+        aliases:
+          - nyx-agent
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  nyx-web:
+    build:
+      context: ../../web
+      dockerfile: ../deploy/luxvps/Dockerfile.web
+      args:
+        NODE_IMAGE: node:22.23.1-bookworm-slim
+        PNPM_VERSION: 9.15.9
+        VITE_AGENT_API: ${NYX_VITE_AGENT_API:-/agent}
+        VITE_AUCTION_ADDRESS: ${NYX_AUCTION_ADDRESS:?set NYX_AUCTION_ADDRESS to the deployed auction address}
+        VITE_REQUIRE_LIVE: ${NYX_REQUIRE_LIVE:-true}
+    restart: unless-stopped
+    depends_on:
+      nyx-agent:
+        condition: service_healthy
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=16m,mode=0755
+      - /var/run:rw,noexec,nosuid,nodev,size=1m,mode=0755
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s
+    secrets:
+      - source: nyx_agent_auth
+        target: nyx-agent-auth.conf
+    expose:
+      - "8080"
+    networks:
+      public_proxy:
+        aliases:
+          - nyx-web
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  public_proxy:
+    name: ${NYX_PUBLIC_PROXY_NETWORK:-public_proxy}
+    external: true
+
+secrets:
+  nyx_agent_auth:
+    file: ${NYX_AGENT_AUTH_SNIPPET_HOST:?set NYX_AGENT_AUTH_SNIPPET_HOST to the mode-600 Nginx auth snippet}

@@ -43,12 +43,17 @@ export class NyxAgent {
 
   async recover(): Promise<void> {
     this.state = "recovering";
+    const entries = this.store.all();
     const [statuses, lastReason] = await Promise.all([
-      readSubmittedStatuses(this.publicClient, this.config),
+      readSubmittedStatuses(
+        this.publicClient,
+        this.config,
+        entries.map((entry) => entry.commitment),
+      ),
       readLatestBatchSettledReason(this.publicClient, this.config),
     ]);
     this.lastReason = lastReason;
-    for (const entry of this.store.all()) {
+    for (const entry of entries) {
       const onchainStatus = statuses.get(entry.commitment);
       if (onchainStatus === "settled" || onchainStatus === "cancelled") {
         await this.store.mark(entry.commitment, onchainStatus);

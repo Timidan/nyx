@@ -15,12 +15,6 @@ import type { Address, DexSnapshot, Hex32, MatchedOrder, OrderReveal, TokenInfo 
 
 const MAX_RPC_LOG_BLOCK_RANGE = 5_000n;
 
-type AuctionEventName =
-  | "OrderSubmitted"
-  | "OrderSettled"
-  | "OrderCancelled"
-  | "BatchSettled";
-
 type AuctionEventLog = {
   args: { commitment?: Hex32; reason?: bigint | number };
   blockNumber: bigint | null;
@@ -173,24 +167,21 @@ export async function readOrder(
 export async function readSubmittedStatuses(
   publicClient: PublicClient,
   config: AgentConfig,
+  commitments: Hex32[],
 ): Promise<Map<Hex32, "queued" | "settled" | "cancelled">> {
   const statuses = new Map<Hex32, "queued" | "settled" | "cancelled">();
   if (!config.auctionAddress) return statuses;
 
-  const [submitted, settled, cancelled] = await Promise.all([
-    getAuctionEventsInChunks(publicClient, config, "OrderSubmitted"),
-    getAuctionEventsInChunks(publicClient, config, "OrderSettled"),
-    getAuctionEventsInChunks(publicClient, config, "OrderCancelled"),
-  ]);
-
-  for (const log of submitted) {
-    statuses.set(log.args.commitment as Hex32, "queued");
-  }
-  for (const log of settled) {
-    statuses.set(log.args.commitment as Hex32, "settled");
-  }
-  for (const log of cancelled) {
-    statuses.set(log.args.commitment as Hex32, "cancelled");
+  const onchainOrders = await Promise.all(
+    commitments.map(async (commitment) => ({
+      commitment,
+      order: await readOrder(publicClient, config.auctionAddress as Address, commitment),
+    })),
+  );
+  for (const { commitment, order } of onchainOrders) {
+    if (order.status === 1) statuses.set(commitment, "queued");
+    if (order.status === 2) statuses.set(commitment, "settled");
+    if (order.status === 3) statuses.set(commitment, "cancelled");
   }
   return statuses;
 }
@@ -201,40 +192,28 @@ export async function readLatestBatchSettledReason(
 ): Promise<number | null> {
   if (!config.auctionAddress) return null;
 
-  const settled = await getAuctionEventsInChunks(publicClient, config, "BatchSettled");
-
-  const latest = settled.reduce<(typeof settled)[number] | null>((best, log) => {
-    if (!best) return log;
-    const bestBlock = best.blockNumber ?? 0n;
-    const logBlock = log.blockNumber ?? 0n;
-    if (logBlock > bestBlock) return log;
-    if (logBlock < bestBlock) return best;
-    return BigInt(log.logIndex ?? 0) > BigInt(best.logIndex ?? 0) ? log : best;
-  }, null);
-
-  return latest?.args.reason == null ? null : Number(latest.args.reason);
-}
-
-async function getAuctionEventsInChunks(
-  publicClient: PublicClient,
-  config: AgentConfig,
-  eventName: AuctionEventName,
-): Promise<AuctionEventLog[]> {
-  if (!config.auctionAddress) return [];
-
   const latestBlock = await publicClient.getBlockNumber();
-  const logs: AuctionEventLog[] = [];
-  for (const range of splitBlockRange(config.fromBlock, latestBlock)) {
+  const ranges = splitBlockRange(config.fromBlock, latestBlock).reverse();
+  for (const range of ranges) {
     const chunk = await publicClient.getContractEvents({
       address: config.auctionAddress,
       abi: nyxBatchAuctionAbi,
-      eventName,
+      eventName: "BatchSettled",
       fromBlock: range.fromBlock,
       toBlock: range.toBlock,
     });
-    logs.push(...(chunk as unknown as AuctionEventLog[]));
+    const settled = chunk as unknown as AuctionEventLog[];
+    const latest = settled.reduce<AuctionEventLog | null>((best, log) => {
+      if (!best) return log;
+      const bestBlock = best.blockNumber ?? 0n;
+      const logBlock = log.blockNumber ?? 0n;
+      if (logBlock > bestBlock) return log;
+      if (logBlock < bestBlock) return best;
+      return BigInt(log.logIndex ?? 0) > BigInt(best.logIndex ?? 0) ? log : best;
+    }, null);
+    if (latest?.args.reason != null) return Number(latest.args.reason);
   }
-  return logs;
+  return null;
 }
 
 export async function simulateSettle(

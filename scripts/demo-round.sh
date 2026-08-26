@@ -9,6 +9,9 @@
 #
 # Defaults: --wbot-size 10000000000000000, --price-slack-bps 0,
 # --reason pair, --agent-url http://localhost:${AGENT_PORT:-8787}.
+# Requires DEPLOYER_PRIVATE_KEY for the WBOT side and a distinct
+# COUNTERPARTY_PRIVATE_KEY for the BOUSDT side. Nyx rejects cross-side
+# self-trading even when the amounts conserve exactly.
 # "price slack" is applied to minBuy values in basis points. The spread mode
 # also nudges the clearing price below the live reference price, within
 # MAX_CLEARING_DEVIATION_BPS, so dexSpreadOk can become true.
@@ -102,20 +105,45 @@ require_cmd node
 require_env RPC_URL
 require_env NYX_BATCH_AUCTION
 require_env DEPLOYER_PRIVATE_KEY
+require_env COUNTERPARTY_PRIVATE_KEY
 require_env WBOT
 require_env BOUSDT
 require_env SWAP_ROUTER
 
 DEPLOYER_ADDRESS="${DEPLOYER_ADDRESS:-$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")}"
+COUNTERPARTY_ADDRESS="${COUNTERPARTY_ADDRESS:-$(cast wallet address --private-key "$COUNTERPARTY_PRIVATE_KEY")}"
+if [[ "${DEPLOYER_ADDRESS,,}" == "${COUNTERPARTY_ADDRESS,,}" ]]; then
+  echo "COUNTERPARTY_PRIVATE_KEY must control a wallet distinct from DEPLOYER_PRIVATE_KEY" >&2
+  exit 1
+fi
 CHAIN_ID="${CHAIN_ID:-968}"
 DEPTH_MIN="${DEPTH_MIN:-4}"
 NOTIONAL_MAX_X18="${NOTIONAL_MAX_X18:-1000000000000000000}"
 DEX_SPREAD_BPS="${DEX_SPREAD_BPS:-500}"
 MAX_CLEARING_DEVIATION_BPS="${MAX_CLEARING_DEVIATION_BPS:-1000}"
+ORDER_TTL_SECONDS="${ORDER_TTL_SECONDS:-900}"
+CANCEL_DELAY_SECONDS="$(cast call "$NYX_BATCH_AUCTION" "cancelDelaySeconds()(uint256)" --rpc-url "$RPC_URL" | awk '{print $1}')"
+if (( ORDER_TTL_SECONDS > CANCEL_DELAY_SECONDS )); then
+  ORDER_TTL_SECONDS="$CANCEL_DELAY_SECONDS"
+fi
+EXPIRES_AT="$(($(date +%s) + ORDER_TTL_SECONDS))"
 
 # Newer `cast` annotates numeric returns as "123 [1.23e2]"; keep the first field.
 REFERENCE_PRICE_X18="$(cast call "$NYX_BATCH_AUCTION" "getReferencePriceX18()(uint256)" --rpc-url "$RPC_URL" | awk '{print $1}')"
 BATCH_ID="$(cast call "$NYX_BATCH_AUCTION" "currentBatchId()(uint64)" --rpc-url "$RPC_URL" | awk '{print $1}')"
+PAUSED="$(cast call "$NYX_BATCH_AUCTION" "paused()(bool)" --rpc-url "$RPC_URL")"
+if [[ "$PAUSED" != "false" ]]; then
+  echo "Nyx is paused; complete canary verification before unpausing" >&2
+  exit 1
+fi
+if [[ "$(cast call "$NYX_BATCH_AUCTION" "allowlistEnabled()(bool)" --rpc-url "$RPC_URL")" == "true" ]]; then
+  for trader in "$DEPLOYER_ADDRESS" "$COUNTERPARTY_ADDRESS"; do
+    if [[ "$(cast call "$NYX_BATCH_AUCTION" "allowedTraders(address)(bool)" "$trader" --rpc-url "$RPC_URL")" != "true" ]]; then
+      echo "$trader is not allowlisted for the canary" >&2
+      exit 1
+    fi
+  done
+fi
 
 CALCULATED_VALUES="$(
   REASON="$REASON" \
@@ -248,14 +276,20 @@ process.stdin.on("end", () => {
 }
 
 post_order() {
-  local sell_token="$1"
-  local sell_amount="$2"
-  local min_buy="$3"
-  local salt="$4"
+  local trader="$1"
+  local sell_token="$2"
+  local sell_amount="$3"
+  local min_buy="$4"
+  local salt="$5"
+  local auth_args=()
+  if [[ -n "${AGENT_API_BEARER_TOKEN:-}" ]]; then
+    auth_args=(-H "authorization: Bearer $AGENT_API_BEARER_TOKEN")
+  fi
 
   curl -sS -X POST "$AGENT_URL/orders" \
     -H 'content-type: application/json' \
-    --data '{"trader":"'"$DEPLOYER_ADDRESS"'","batchId":"'"$BATCH_ID"'","sellToken":"'"$sell_token"'","sellAmount":"'"$sell_amount"'","minBuyAmount":"'"$min_buy"'","salt":"'"$salt"'"}' \
+    "${auth_args[@]}" \
+    --data '{"trader":"'"$trader"'","batchId":"'"$BATCH_ID"'","sellToken":"'"$sell_token"'","sellAmount":"'"$sell_amount"'","minBuyAmount":"'"$min_buy"'","expiresAt":"'"$EXPIRES_AT"'","salt":"'"$salt"'"}' \
     >/dev/null
 }
 
@@ -267,12 +301,20 @@ echo "  WBOT per order: $WBOT_SIZE"
 echo "  BOUSDT per order: $BOUSDT_SIZE"
 echo "  clearing price X18: $CLEARING_PRICE_X18"
 echo "  price slack bps: $PRICE_SLACK_BPS"
+echo "  WBOT trader: $DEPLOYER_ADDRESS"
+echo "  BOUSDT trader: $COUNTERPARTY_ADDRESS"
+echo "  expires at: $EXPIRES_AT"
 echo
 
 BEFORE_STATUS="$(curl -sS "$AGENT_URL/status" || printf '{}')"
 BEFORE_LAST_TX="$(printf '%s' "$BEFORE_STATUS" | json_field lastTx)"
 
 echo "Preparing tiny live token balances..."
+COUNTERPARTY_GAS_BALANCE="$(cast balance "$COUNTERPARTY_ADDRESS" --rpc-url "$RPC_URL")"
+if [[ "$COUNTERPARTY_GAS_BALANCE" == "0" ]]; then
+  echo "counterparty wallet needs BOT for its approval and submit transactions" >&2
+  exit 1
+fi
 cast send "$WBOT" "deposit()" \
   --value "$WRAP_VALUE" \
   --rpc-url "$RPC_URL" \
@@ -289,13 +331,17 @@ cast send "$SWAP_ROUTER" \
   --rpc-url "$RPC_URL" \
   --private-key "$DEPLOYER_PRIVATE_KEY" >/dev/null
 
+cast send "$BOUSDT" "transfer(address,uint256)" "$COUNTERPARTY_ADDRESS" "$TOTAL_BOUSDT" \
+  --rpc-url "$RPC_URL" \
+  --private-key "$DEPLOYER_PRIVATE_KEY" >/dev/null
+
 cast send "$WBOT" "approve(address,uint256)" "$NYX_BATCH_AUCTION" "$TOTAL_WBOT" \
   --rpc-url "$RPC_URL" \
   --private-key "$DEPLOYER_PRIVATE_KEY" >/dev/null
 
 cast send "$BOUSDT" "approve(address,uint256)" "$NYX_BATCH_AUCTION" "$TOTAL_BOUSDT" \
   --rpc-url "$RPC_URL" \
-  --private-key "$DEPLOYER_PRIVATE_KEY" >/dev/null
+  --private-key "$COUNTERPARTY_PRIVATE_KEY" >/dev/null
 
 echo "Submitting commitments and reveals..."
 for index in $(seq 1 "$PAIR_COUNT"); do
@@ -303,29 +349,29 @@ for index in $(seq 1 "$PAIR_COUNT"); do
   SALT_BOUSDT="$(cast keccak "nyx-demo-$REASON-bousdt-$BATCH_ID-$index-$(date +%s)-$$")"
 
   COMMIT_WBOT="$(cast call "$NYX_BATCH_AUCTION" \
-    "hashOrder((address,uint64,address,uint256,uint256,bytes32))(bytes32)" \
-    "($DEPLOYER_ADDRESS,$BATCH_ID,$WBOT,$WBOT_SIZE,$MIN_BUY_BOUSDT,$SALT_WBOT)" \
+    "hashOrder((address,uint64,address,uint256,uint256,uint64,bytes32))(bytes32)" \
+    "($DEPLOYER_ADDRESS,$BATCH_ID,$WBOT,$WBOT_SIZE,$MIN_BUY_BOUSDT,$EXPIRES_AT,$SALT_WBOT)" \
     --rpc-url "$RPC_URL")"
 
   COMMIT_BOUSDT="$(cast call "$NYX_BATCH_AUCTION" \
-    "hashOrder((address,uint64,address,uint256,uint256,bytes32))(bytes32)" \
-    "($DEPLOYER_ADDRESS,$BATCH_ID,$BOUSDT,$BOUSDT_SIZE,$MIN_BUY_WBOT,$SALT_BOUSDT)" \
+    "hashOrder((address,uint64,address,uint256,uint256,uint64,bytes32))(bytes32)" \
+    "($COUNTERPARTY_ADDRESS,$BATCH_ID,$BOUSDT,$BOUSDT_SIZE,$MIN_BUY_WBOT,$EXPIRES_AT,$SALT_BOUSDT)" \
     --rpc-url "$RPC_URL")"
 
   cast send "$NYX_BATCH_AUCTION" \
-    "submitOrder(uint64,bytes32,address,uint256)" \
-    "$BATCH_ID" "$COMMIT_WBOT" "$WBOT" "$WBOT_SIZE" \
+    "submitOrder(uint64,bytes32,address,uint256,uint64)" \
+    "$BATCH_ID" "$COMMIT_WBOT" "$WBOT" "$WBOT_SIZE" "$EXPIRES_AT" \
     --rpc-url "$RPC_URL" \
     --private-key "$DEPLOYER_PRIVATE_KEY" >/dev/null
 
   cast send "$NYX_BATCH_AUCTION" \
-    "submitOrder(uint64,bytes32,address,uint256)" \
-    "$BATCH_ID" "$COMMIT_BOUSDT" "$BOUSDT" "$BOUSDT_SIZE" \
+    "submitOrder(uint64,bytes32,address,uint256,uint64)" \
+    "$BATCH_ID" "$COMMIT_BOUSDT" "$BOUSDT" "$BOUSDT_SIZE" "$EXPIRES_AT" \
     --rpc-url "$RPC_URL" \
-    --private-key "$DEPLOYER_PRIVATE_KEY" >/dev/null
+    --private-key "$COUNTERPARTY_PRIVATE_KEY" >/dev/null
 
-  post_order "$WBOT" "$WBOT_SIZE" "$MIN_BUY_BOUSDT" "$SALT_WBOT"
-  post_order "$BOUSDT" "$BOUSDT_SIZE" "$MIN_BUY_WBOT" "$SALT_BOUSDT"
+  post_order "$DEPLOYER_ADDRESS" "$WBOT" "$WBOT_SIZE" "$MIN_BUY_BOUSDT" "$SALT_WBOT"
+  post_order "$COUNTERPARTY_ADDRESS" "$BOUSDT" "$BOUSDT_SIZE" "$MIN_BUY_WBOT" "$SALT_BOUSDT"
 done
 
 echo "Waiting for agent settlement..."

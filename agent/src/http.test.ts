@@ -14,7 +14,6 @@ const baseConfig: AgentConfig = {
   auctionAddress: "0x0000000000000000000000000000000000000100",
   wbot: "0x0000000000000000000000000000000000000001",
   bousdt: "0x0000000000000000000000000000000000000002",
-  dexPair: "0x0000000000000000000000000000000000000003",
   fromBlock: 0n,
   pollMs: 5000,
   httpHost: "127.0.0.1",
@@ -41,6 +40,15 @@ const fakeAgent = {
     commitment: "0x0000000000000000000000000000000000000000000000000000000000000001",
     status: "queued",
   }),
+  getQuoteRequests: () => [
+    {
+      commitment: `0x${"11".repeat(32)}`,
+      batchId: "1",
+      sellToken: "0x0000000000000000000000000000000000000001",
+      sellAmount: "1000000000000000000",
+      expiresAt: "2000000000",
+    },
+  ],
 } as unknown as NyxAgent;
 
 afterEach(async () => {
@@ -71,6 +79,41 @@ describe("agent HTTP boundary", () => {
     assert.equal(first.status, 202);
     assert.equal(second.status, 429);
   });
+
+  it("rejects a reveal that omits its committed expiry", async () => {
+    const baseUrl = await startTestServer({
+      ...baseConfig,
+      rateLimitMaxRequests: 10,
+    });
+    const { expiresAt: _expiresAt, ...withoutExpiry } = validOrderReveal();
+    const response = await fetch(`${baseUrl}/orders`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer secret-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(withoutExpiry),
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /expiresAt/);
+  });
+
+  it("protects the quote-request feed with a separate provider credential", async () => {
+    const config = {
+      ...baseConfig,
+      quoteProviderBearerToken: "provider-secret",
+    } as AgentConfig;
+    const baseUrl = await startTestServer(config);
+    const denied = await fetch(`${baseUrl}/quote-requests`);
+    const allowed = await fetch(`${baseUrl}/quote-requests`, {
+      headers: { authorization: "Bearer provider-secret" },
+    });
+
+    assert.equal(denied.status, 401);
+    assert.equal(allowed.status, 200);
+    assert.deepEqual(await allowed.json(), fakeAgent.getQuoteRequests());
+  });
 });
 
 async function startTestServer(config: AgentConfig): Promise<string> {
@@ -99,6 +142,7 @@ function validOrderReveal() {
     sellToken: "0x0000000000000000000000000000000000000001",
     sellAmount: "1000000000000000000",
     minBuyAmount: "1",
+    expiresAt: "2000000000",
     salt: "0x0000000000000000000000000000000000000000000000000000000000000002",
   };
 }

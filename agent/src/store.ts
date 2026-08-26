@@ -10,6 +10,7 @@ interface StoredOrderJson {
     sellToken: string;
     sellAmount: string;
     minBuyAmount: string;
+    expiresAt: string;
     salt: Hex32;
   };
   status: QueueStatus;
@@ -90,6 +91,7 @@ function toJson(entry: QueuedOrder): StoredOrderJson {
       sellToken: entry.order.sellToken,
       sellAmount: entry.order.sellAmount.toString(),
       minBuyAmount: entry.order.minBuyAmount.toString(),
+      expiresAt: entry.order.expiresAt.toString(),
       salt: entry.order.salt,
     },
     status: entry.status,
@@ -107,6 +109,7 @@ function fromJson(entry: StoredOrderJson): QueuedOrder {
       sellToken: entry.order.sellToken as OrderReveal["sellToken"],
       sellAmount: BigInt(entry.order.sellAmount),
       minBuyAmount: BigInt(entry.order.minBuyAmount),
+      expiresAt: BigInt(entry.order.expiresAt),
       salt: entry.order.salt,
     },
     status: entry.status,

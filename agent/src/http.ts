@@ -27,6 +27,13 @@ export function startHttpServer(agent: NyxAgent, config: AgentConfig) {
       if (req.method === "GET" && req.url === "/status") {
         return sendJson(res, 200, agent.getStatus());
       }
+      if (req.method === "GET" && req.url === "/quote-requests") {
+        if (!config.quoteProviderBearerToken) {
+          return sendJson(res, 404, { error: "not found" });
+        }
+        if (rejectQuoteProviderUnauthenticated(req, res, config.quoteProviderBearerToken)) return;
+        return sendJson(res, 200, agent.getQuoteRequests());
+      }
       if (req.method === "POST" && req.url === "/orders") {
         if (rejectBadBrowserOrigin(req, res, config.corsOrigin)) return;
         if (rejectUnauthenticated(req, res, config)) return;
@@ -119,6 +126,17 @@ function rejectUnauthenticated(
   return true;
 }
 
+function rejectQuoteProviderUnauthenticated(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expected: string,
+): boolean {
+  const provided = parseBearerToken(req.headers.authorization);
+  if (provided && constantTimeEqual(provided, expected)) return false;
+  sendJson(res, 401, { error: "unauthorized" });
+  return true;
+}
+
 function rejectRateLimited(
   req: IncomingMessage,
   res: ServerResponse,
@@ -174,6 +192,7 @@ function parseOrderReveal(value: unknown): OrderReveal {
     sellToken,
     sellAmount: parseBigInt(value.sellAmount, "sellAmount"),
     minBuyAmount: parseBigInt(value.minBuyAmount, "minBuyAmount"),
+    expiresAt: parseBigInt(value.expiresAt, "expiresAt"),
     salt,
   };
 }

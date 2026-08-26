@@ -15,6 +15,7 @@ function queued(partial: Partial<QueuedOrder>): QueuedOrder {
       sellToken: wbot,
       sellAmount: 1_000000000000000000n,
       minBuyAmount: 9_000000n,
+      expiresAt: 2_000_000_000n,
       salt: `0x${"aa".repeat(32)}`,
     },
     status: "queued",
@@ -40,6 +41,7 @@ describe("decide", () => {
         sellToken: bousdt,
         sellAmount: 10_000000n,
         minBuyAmount: 900000000000000000n,
+        expiresAt: 2_000_000_000n,
         salt: `0x${"bb".repeat(32)}`,
       },
     });
@@ -129,6 +131,7 @@ describe("decide", () => {
         sellToken: bousdt,
         sellAmount: 10_000000n,
         minBuyAmount: 1_000000000000000000n,
+        expiresAt: 2_000_000_000n,
         salt: `0x${"bb".repeat(32)}`,
       },
     });

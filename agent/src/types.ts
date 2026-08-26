@@ -7,6 +7,7 @@ export interface OrderReveal {
   sellToken: Address;
   sellAmount: bigint;
   minBuyAmount: bigint;
+  expiresAt: bigint;
   salt: Hex32;
 }
 
@@ -26,12 +27,7 @@ export interface TokenInfo {
   decimals: number;
 }
 
-export interface DexSnapshot {
-  pair: Address;
-  pairToken0: Address;
-  pairToken1: Address;
-  reserve0: bigint;
-  reserve1: bigint;
+export interface MarketSnapshot {
   token0: TokenInfo;
   token1: TokenInfo;
   referencePriceX18: bigint;

@@ -8,6 +8,7 @@ import { SealOrderPanel } from "./components/SealOrderPanel";
 import { StatusBar } from "./components/StatusBar";
 import { NightSky } from "./components/NightSky";
 import { Landing } from "./Landing";
+import { Liquidity } from "./Liquidity";
 
 /** Path-based routing without a router lib: "/app" is the trading desk,
  *  everything else (including "/") is the landing page. Navigation between
@@ -16,10 +17,11 @@ import { Landing } from "./Landing";
 export default function App() {
   const path = window.location.pathname;
   const isDesk = path === "/app" || path.startsWith("/app/");
+  const isLiquidity = path === "/liquidity" || path.startsWith("/liquidity/");
   return (
     <>
       <NightSky />
-      {isDesk ? <Desk /> : <Landing />}
+      {isDesk ? <Desk /> : isLiquidity ? <Liquidity /> : <Landing />}
     </>
   );
 }

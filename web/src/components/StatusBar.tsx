@@ -1,3 +1,4 @@
+import { CHAIN_LABEL } from "../lib/chain";
 import { AUCTION_ADDRESS, IS_LIVE } from "../lib/config";
 import { truncateHash } from "../lib/format";
 import { PngIcon } from "./Icons";
@@ -12,12 +13,12 @@ export function StatusBar() {
         </span>
         <span className="sunken95 flex items-center gap-1.5 px-2 py-0.5">
           <PngIcon src="/icons/botchain.png" size={12} />
-          BOT Chain testnet · chain 968
+          {CHAIN_LABEL}
         </span>
         <span className="sunken95 px-2 py-0.5">
           {IS_LIVE
             ? `auction ${truncateHash(AUCTION_ADDRESS!)}`
-            : "simulated data until deploy"}
+            : "no contract configured — simulated data"}
         </span>
       </div>
     </footer>

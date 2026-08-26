@@ -1,6 +1,5 @@
 import { formatUnits } from "viem";
-
-const EXPLORER = "https://scan.bohr.life";
+import { EXPLORER_URL as EXPLORER } from "./chain";
 
 /** 0x1234…abcd — truncated hash/address for dense data rows. */
 export function truncateHash(hash: string, lead = 6, tail = 4): string {

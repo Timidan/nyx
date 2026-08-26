@@ -36,6 +36,26 @@ export const AGENT_API = (
   import.meta.env.VITE_AGENT_API ?? "http://localhost:8787"
 ).replace(/\/$/, "");
 
+/** Intended order lifetime. The submit path also clamps this to the auction's
+ *  on-chain cancel window, so a bad frontend value cannot exceed the contract
+ *  maximum. */
+export const ORDER_TTL_SECONDS = readPositiveInteger(
+  import.meta.env.VITE_ORDER_TTL_SECONDS,
+  15 * 60,
+  "VITE_ORDER_TTL_SECONDS",
+);
+
+/** Optional operator-owned funnels. Nyx does not require a CRM or identity
+ *  vendor; deployments can point these at any existing application channel. */
+export const ACCESS_REQUEST_URL = readOptionalHttpUrl(
+  import.meta.env.VITE_ACCESS_REQUEST_URL,
+  "VITE_ACCESS_REQUEST_URL",
+);
+export const QUOTE_PROVIDER_APPLY_URL = readOptionalHttpUrl(
+  import.meta.env.VITE_QUOTE_PROVIDER_APPLY_URL,
+  "VITE_QUOTE_PROVIDER_APPLY_URL",
+);
+
 /** Guard for live-only code paths. */
 export function requireAuctionAddress(): `0x${string}` {
   if (!AUCTION_ADDRESS) throw new Error("VITE_AUCTION_ADDRESS is not set");
@@ -74,4 +94,28 @@ export const nyxBatchAuctionAbi = resolveAuctionAbi();
 
 function requiresLiveMode(): boolean {
   return import.meta.env.VITE_REQUIRE_LIVE === "true";
+}
+
+function readPositiveInteger(
+  raw: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function readOptionalHttpUrl(raw: string | undefined, name: string): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error();
+    return url.toString();
+  } catch {
+    throw new Error(`${name} must be an http(s) URL`);
+  }
 }

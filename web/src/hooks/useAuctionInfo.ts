@@ -4,16 +4,16 @@ import { IS_LIVE, nyxBatchAuctionAbi, requireAuctionAddress } from "../lib/confi
 
 export interface AuctionInfo {
   agent: `0x${string}`;
-  referencePair: `0x${string}`;
+  referenceOracle: `0x${string}`;
 }
 
-/** Static proof facts read from the auction: agent wallet + BOT DEX pair. */
+/** Static proof facts read from the auction: agent wallet + TWAP oracle. */
 export function useAuctionInfo() {
   return useQuery<AuctionInfo>({
     queryKey: ["auctionInfo"],
     queryFn: async () => {
       const auction = requireAuctionAddress();
-      const [agent, referencePair] = await Promise.all([
+      const [agent, referenceOracle] = await Promise.all([
         publicClient.readContract({
           address: auction,
           abi: nyxBatchAuctionAbi,
@@ -22,10 +22,10 @@ export function useAuctionInfo() {
         publicClient.readContract({
           address: auction,
           abi: nyxBatchAuctionAbi,
-          functionName: "referencePair",
+          functionName: "referenceOracle",
         }),
       ]);
-      return { agent, referencePair };
+      return { agent, referenceOracle };
     },
     enabled: IS_LIVE,
     staleTime: Infinity,

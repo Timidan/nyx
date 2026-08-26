@@ -1,27 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAccount } from "wagmi";
-import {
-  getAccount,
-  switchChain,
-  waitForTransactionReceipt,
-  writeContract,
-} from "wagmi/actions";
-import { botChain } from "../lib/chain";
-import { publicClient, wagmiConfig } from "../lib/clients";
+import { publicClient } from "../lib/clients";
 import { IS_LIVE, nyxBatchAuctionAbi, requireAuctionAddress } from "../lib/config";
+import { fromX18 } from "../lib/format";
 import { loadOrders, type StoredOrder } from "../lib/orderStore";
+import { deriveOrderExit, type OrderExitPhase } from "../lib/orderPolicy";
+import { useBrowserWallet } from "../lib/wallet";
 
-// Contract order-status constants (contracts/src/NyxBatchAuction.sol).
-const STATUS_SUBMITTED = 1;
-const STATUS_SETTLED = 2;
-const STATUS_CANCELLED = 3;
+export type OrderPhase = OrderExitPhase;
 
-export type OrderPhase =
-  | "waiting" // submitted, current round
-  | "stale" // submitted, but the round moved on — refundable
-  | "settled"
-  | "cancelled"
-  | "unknown";
+export interface OrderSettlementReceipt {
+  txHash: `0x${string}`;
+  settlementHash: `0x${string}`;
+  buyAmount: bigint;
+  clearingPrice: number;
+  referencePrice: number;
+}
 
 export interface MyOrder extends StoredOrder {
   phase: OrderPhase;
@@ -33,11 +26,13 @@ export interface MyOrder extends StoredOrder {
   /** seconds until cancel unlocks (submittedAt + cancelDelay − now); 0 once
    *  unlocked, null when the order is not open */
   cancelUnlocksInSecs: number | null;
+  receipt?: OrderSettlementReceipt;
 }
 
 const PHASE_WORDS: Record<OrderPhase, string> = {
   waiting: "waiting",
   stale: "stale round",
+  expired: "expired",
   settled: "settled",
   cancelled: "cancelled",
   unknown: "unknown",
@@ -54,7 +49,7 @@ async function fetchMyOrders(address: `0x${string}`): Promise<MyOrder[]> {
   if (stored.length === 0) return [];
   const auction = requireAuctionAddress();
 
-  const [cancelDelay, currentBatchId] = await Promise.all([
+  const [cancelDelay, currentBatchId, settlementLogs, batchLogs] = await Promise.all([
     publicClient.readContract({
       address: auction,
       abi: nyxBatchAuctionAbi,
@@ -65,37 +60,66 @@ async function fetchMyOrders(address: `0x${string}`): Promise<MyOrder[]> {
       abi: nyxBatchAuctionAbi,
       functionName: "currentBatchId",
     }),
+    publicClient.getContractEvents({
+      address: auction,
+      abi: nyxBatchAuctionAbi,
+      eventName: "OrderSettled",
+      fromBlock: "earliest",
+      toBlock: "latest",
+    }),
+    publicClient.getContractEvents({
+      address: auction,
+      abi: nyxBatchAuctionAbi,
+      eventName: "BatchSettled",
+      fromBlock: "earliest",
+      toBlock: "latest",
+    }),
   ]);
 
-  const nowSecs = Math.floor(Date.now() / 1000);
+  const nowSecs = BigInt(Math.floor(Date.now() / 1000));
   const enriched = await Promise.all(
     stored.map(async (order): Promise<MyOrder> => {
       try {
-        const [, batchId, , , submittedAt, status] =
+        const [, batchId, , , submittedAt, expiresAt, status] =
           await publicClient.readContract({
             address: auction,
             abi: nyxBatchAuctionAbi,
             functionName: "getOrder",
             args: [order.commitment],
           });
-        const open = status === STATUS_SUBMITTED;
-        const phase: OrderPhase =
-          status === STATUS_SETTLED
-            ? "settled"
-            : status === STATUS_CANCELLED
-              ? "cancelled"
-              : open
-                ? batchId === currentBatchId
-                  ? "waiting"
-                  : "stale"
-                : "unknown";
-        const unlockAt = Number(submittedAt) + Number(cancelDelay);
+        const exit = deriveOrderExit({
+          status,
+          batchId,
+          currentBatchId,
+          submittedAt,
+          expiresAt,
+          cancelDelay,
+          now: nowSecs,
+        });
+        const settlementLog = settlementLogs.find(
+          (log) => log.args.commitment?.toLowerCase() === order.commitment.toLowerCase(),
+        );
+        const batchLog = settlementLog
+          ? batchLogs.find((log) => log.transactionHash === settlementLog.transactionHash)
+          : undefined;
+        const receipt =
+          settlementLog && batchLog?.args.settlementHash
+            ? {
+                txHash: settlementLog.transactionHash,
+                settlementHash: batchLog.args.settlementHash,
+                buyAmount: settlementLog.args.buyAmount ?? 0n,
+                clearingPrice: fromX18(batchLog.args.clearingPriceX18 ?? 0n),
+                referencePrice: fromX18(batchLog.args.referencePriceX18 ?? 0n),
+              }
+            : undefined;
         return {
           ...order,
-          phase,
-          open,
-          cancellable: open && nowSecs >= unlockAt,
-          cancelUnlocksInSecs: open ? Math.max(0, unlockAt - nowSecs) : null,
+          expiresAt: Number(expiresAt),
+          phase: exit.phase,
+          open: exit.open,
+          cancellable: exit.cancellable,
+          cancelUnlocksInSecs: exit.unlocksInSecs,
+          receipt,
         };
       } catch {
         return {
@@ -114,7 +138,7 @@ async function fetchMyOrders(address: `0x${string}`): Promise<MyOrder[]> {
 /** The connected wallet's locally-tracked orders with live on-chain status.
  *  Live mode only — the my-orders window is hidden in mock mode. */
 export function useMyOrders() {
-  const { address } = useAccount();
+  const { address } = useBrowserWallet();
   return useQuery<MyOrder[]>({
     queryKey: [...myOrdersQueryKey, address ?? "none"],
     queryFn: () => fetchMyOrders(address!),
@@ -126,23 +150,17 @@ export function useMyOrders() {
 /** cancelOrder(commitment) through the wallet, then refresh the list. */
 export function useCancelOrder() {
   const qc = useQueryClient();
+  const wallet = useBrowserWallet();
   return useMutation<`0x${string}`, Error, `0x${string}`>({
     mutationFn: async (commitment) => {
       const auction = requireAuctionAddress();
-      // account.chainId is the wallet's REAL chain; getChainId(wagmiConfig)
-      // only reflects config state (always 968 — the sole configured chain).
-      // Same fix as useSubmitOrder.
-      if (getAccount(wagmiConfig).chainId !== botChain.id) {
-        await switchChain(wagmiConfig, { chainId: botChain.id });
-      }
-      const hash = await writeContract(wagmiConfig, {
+      const hash = await wallet.sendContract({
         address: auction,
         abi: nyxBatchAuctionAbi,
         functionName: "cancelOrder",
         args: [commitment],
-        chainId: botChain.id,
       });
-      const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") {
         throw new Error("Cancel reverted on-chain.");
       }

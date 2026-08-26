@@ -61,12 +61,12 @@ export function ProofStrip() {
             copyValue={String(agentState.currentBatchId)}
           />
         )}
-        {info?.referencePair && (
+        {info?.referenceOracle && (
           <Segment
-            label="BOT DEX pair"
-            value={info.referencePair}
-            href={addressUrl(info.referencePair)}
-            iconSrc="/icons/botdex.png"
+            label="V3 TWAP oracle"
+            value={info.referenceOracle}
+            href={addressUrl(info.referenceOracle)}
+            iconSrc="/icons/explorer.png"
           />
         )}
         {latest && (
@@ -82,8 +82,7 @@ export function ProofStrip() {
         )}
       </div>
       <p className="mt-2 font-mono text-[0.6875rem] text-faint">
-        Everything above is verifiable on scan.bohr.life. This product runs
-        on-chain.
+        Everything above is linked to the configured chain explorer.
       </p>
     </Window>
   );

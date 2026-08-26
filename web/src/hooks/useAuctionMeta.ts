@@ -20,7 +20,9 @@ const MOCK_META: AuctionMeta = {
   quote: {
     address: "0xAfea2A5e0587615ceD6972e271E5bfe8622ebcA2",
     symbol: "BOUSDT",
-    decimals: 18,
+    // 6 on-chain, not 18 — the simulator must scale like the real pair or the
+    // limit-price maths reads differently between mock and live.
+    decimals: 6,
   },
 };
 

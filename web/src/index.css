@@ -182,6 +182,21 @@ html[data-theme="dark"] {
     box-shadow: inset 2px 2px 0 0 var(--sunken-inset);
   }
 
+  /* Third-party token marks (WBOT, USDT). They are circular brand assets, not
+     Nyx chrome, so they keep their own shape and take a low-opacity outline
+     rather than a full-strength ink border, which would box a circle in a
+     square and compete with the mark. Pure black / pure white only: a tinted
+     neutral picks up the surface beneath and reads as dirt on the edge. */
+  .token-mark {
+    border-radius: 9999px;
+    overflow: hidden;
+    outline: 1px solid oklch(0 0 0 / 0.1);
+    outline-offset: -1px;
+  }
+  html[data-theme="dark"] .token-mark {
+    outline-color: oklch(1 0 0 / 0.1);
+  }
+
   /* Comfortable touch targets on small screens (.tap95 for non-btn95
      interactive rows like the side toggle and wallet-picker entries). */
   @media (max-width: 640px) {

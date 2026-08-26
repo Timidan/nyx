@@ -12,7 +12,7 @@ export function Header() {
             Nyx
           </span>
           <span className="hidden font-mono text-[0.6875rem] uppercase tracking-widest text-faint sm:inline">
-            private batch auctions
+            sealed-limit batch auctions
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

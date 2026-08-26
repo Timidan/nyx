@@ -112,7 +112,6 @@ class MockChain {
 
   // ---- simulation ---------------------------------------------------------
   private seed() {
-    const now = Date.now();
     for (let i = 0; i < 12; i++) {
       const reason = randInt(0, 4);
       this.batches.push({
@@ -121,7 +120,6 @@ class MockChain {
         clearingPrice: clampPrice(this.dexPrice + randFloat(-0.004, 0.004)),
         reason,
         txHash: randHex(32),
-        settledAt: now - (12 - i) * 20000,
       });
     }
     this.lastReason = this.batches[this.batches.length - 1]!.reason;
@@ -161,7 +159,6 @@ class MockChain {
       clearingPrice: clampPrice(this.dexPrice + randFloat(-0.0025, 0.0025)),
       reason,
       txHash: randHex(32),
-      settledAt: Date.now(),
     });
     if (this.batches.length > 200) this.batches.shift();
 

@@ -1,16 +1,16 @@
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { erc20Abi, parseUnits, toHex } from "viem";
-import {
-  getAccount,
-  switchChain,
-  waitForTransactionReceipt,
-  writeContract,
-} from "wagmi/actions";
 import { postOrderReveal } from "../lib/agentApi";
-import { botChain } from "../lib/chain";
 import { recordOrder } from "../lib/orderStore";
-import { publicClient, wagmiConfig } from "../lib/clients";
-import { IS_LIVE, nyxBatchAuctionAbi, requireAuctionAddress } from "../lib/config";
+import { publicClient } from "../lib/clients";
+import {
+  IS_LIVE,
+  nyxBatchAuctionAbi,
+  ORDER_TTL_SECONDS,
+  requireAuctionAddress,
+} from "../lib/config";
+import { calculateOrderExpiry } from "../lib/orderPolicy";
+import { useBrowserWallet, type BrowserWalletSession } from "../lib/wallet";
 import { mockChain } from "../lib/mockChain";
 import { agentStateQueryKey } from "./useAgentState";
 import { auctionMetaQueryOptions } from "./useAuctionMeta";
@@ -27,28 +27,24 @@ function randomSalt(): `0x${string}` {
 
 /**
  * LIVE seal flow, per docs/INTERFACES.md:
- *  1. require a connected wallet on chain 968 (add/switch via wallet metadata)
+ *  1. require a connected wallet on the configured chain
  *  2. build OrderReveal for the current batch with a random 32-byte salt
  *  3. commitment = hashOrder(order) via readContract — never hashed locally
  *  4. ERC-20 approve if allowance is insufficient
- *  5. submitOrder(batchId, commitment, sellToken, sellAmount) + receipt
+ *  5. submitOrder(batchId, commitment, sellToken, sellAmount, expiresAt) + receipt
  *  6. POST the reveal preimage to the agent (bigints as decimal strings);
  *     a failed POST is reported, not fatal — the caller offers a retry
  */
 async function sealLiveOrder(
   qc: QueryClient,
+  wallet: BrowserWalletSession,
   { side, amount, limitPrice }: SealedOrder,
 ): Promise<SealResult> {
   const auction = requireAuctionAddress();
 
-  const account = getAccount(wagmiConfig);
-  if (!account.address) throw new Error("Connect a wallet first.");
-  // account.chainId is the wallet's REAL chain; getChainId(wagmiConfig) only
-  // reflects config state (always 968 here — the sole configured chain) and
-  // never detects a wallet sitting on another network.
-  if (account.chainId !== botChain.id) {
-    await switchChain(wagmiConfig, { chainId: botChain.id });
-  }
+  if (!wallet.address) throw new Error("Connect a wallet first.");
+  await wallet.ensureChain();
+  const trader = wallet.address;
 
   const { base, quote } = await qc.ensureQueryData(auctionMetaQueryOptions());
 
@@ -68,18 +64,85 @@ async function sealLiveOrder(
     throw new Error("Order size rounds to zero at this price.");
   }
 
-  const batchId = await publicClient.readContract({
-    address: auction,
-    abi: nyxBatchAuctionAbi,
-    functionName: "currentBatchId",
-  });
+  const [batchId, cancelDelay, paused, allowlistEnabled, traderAllowed, risk, latestBlock] =
+    await Promise.all([
+      publicClient.readContract({
+        address: auction,
+        abi: nyxBatchAuctionAbi,
+        functionName: "currentBatchId",
+      }),
+      publicClient.readContract({
+        address: auction,
+        abi: nyxBatchAuctionAbi,
+        functionName: "cancelDelaySeconds",
+      }),
+      publicClient.readContract({
+        address: auction,
+        abi: nyxBatchAuctionAbi,
+        functionName: "paused",
+      }),
+      publicClient.readContract({
+        address: auction,
+        abi: nyxBatchAuctionAbi,
+        functionName: "allowlistEnabled",
+      }),
+      publicClient.readContract({
+        address: auction,
+        abi: nyxBatchAuctionAbi,
+        functionName: "allowedTraders",
+        args: [trader],
+      }),
+      publicClient.readContract({
+        address: auction,
+        abi: nyxBatchAuctionAbi,
+        functionName: "riskLimits",
+        args: [sellToken.address],
+      }),
+      publicClient.getBlock({ blockTag: "latest" }),
+    ]);
+
+  if (paused) throw new Error("Nyx is paused. No new escrow is being accepted.");
+  if (allowlistEnabled && !traderAllowed) {
+    throw new Error("This launch canary is currently limited to approved wallets.");
+  }
+  if (risk[0] === 0n || sellAmount > risk[0]) {
+    throw new Error("This order exceeds the launch per-order escrow cap.");
+  }
+
+  const [batchEscrowed, totalEscrowed] = await Promise.all([
+    publicClient.readContract({
+      address: auction,
+      abi: nyxBatchAuctionAbi,
+      functionName: "batchEscrowed",
+      args: [batchId, sellToken.address],
+    }),
+    publicClient.readContract({
+      address: auction,
+      abi: nyxBatchAuctionAbi,
+      functionName: "totalEscrowed",
+      args: [sellToken.address],
+    }),
+  ]);
+  if (batchEscrowed + sellAmount > risk[1]) {
+    throw new Error("This round's launch escrow cap is full.");
+  }
+  if (totalEscrowed + sellAmount > risk[2]) {
+    throw new Error("Nyx's launch escrow cap is full.");
+  }
+
+  const expiresAt = calculateOrderExpiry(
+    latestBlock.timestamp,
+    ORDER_TTL_SECONDS,
+    cancelDelay,
+  );
 
   const order = {
-    trader: account.address,
+    trader,
     batchId,
     sellToken: sellToken.address,
     sellAmount,
     minBuyAmount,
+    expiresAt,
     salt: randomSalt(),
   } as const;
 
@@ -94,27 +157,28 @@ async function sealLiveOrder(
     address: sellToken.address,
     abi: erc20Abi,
     functionName: "allowance",
-    args: [account.address, auction],
+    args: [trader, auction],
   });
   if (allowance < sellAmount) {
-    const approveHash = await writeContract(wagmiConfig, {
+    const approveHash = await wallet.sendContract({
       address: sellToken.address,
       abi: erc20Abi,
       functionName: "approve",
       args: [auction, sellAmount],
-      chainId: botChain.id,
     });
-    await waitForTransactionReceipt(wagmiConfig, { hash: approveHash });
+    const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
+    if (approvalReceipt.status !== "success") {
+      throw new Error("Token approval reverted on-chain.");
+    }
   }
 
-  const txHash = await writeContract(wagmiConfig, {
+  const txHash = await wallet.sendContract({
     address: auction,
     abi: nyxBatchAuctionAbi,
     functionName: "submitOrder",
-    args: [batchId, commitment, sellToken.address, sellAmount],
-    chainId: botChain.id,
+    args: [batchId, commitment, sellToken.address, sellAmount, expiresAt],
   });
-  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash: txHash });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status !== "success") {
     throw new Error("Order commitment reverted on-chain.");
   }
@@ -125,6 +189,7 @@ async function sealLiveOrder(
     sellToken: order.sellToken,
     sellAmount: order.sellAmount.toString(),
     minBuyAmount: order.minBuyAmount.toString(),
+    expiresAt: order.expiresAt.toString(),
     salt: order.salt,
   };
   let revealDelivered = true;
@@ -137,7 +202,7 @@ async function sealLiveOrder(
 
   // Track this wallet's order locally for the my-orders panel. The reveal
   // preimage is kept only while its delivery still needs a retry.
-  recordOrder(account.address, {
+  recordOrder(trader, {
     commitment,
     batchId: order.batchId.toString(),
     side,
@@ -146,6 +211,7 @@ async function sealLiveOrder(
     txHash,
     revealDelivered,
     reveal: revealDelivered ? null : reveal,
+    expiresAt: Number(order.expiresAt),
     createdAt: Date.now(),
   });
 
@@ -157,8 +223,9 @@ async function sealLiveOrder(
 /** Seals an order into the next batch (mock simulator when not live). */
 export function useSubmitOrder() {
   const qc = useQueryClient();
+  const wallet = useBrowserWallet();
   return useMutation<SealResult, Error, SealedOrder>({
     mutationFn: (order) =>
-      IS_LIVE ? sealLiveOrder(qc, order) : mockChain.submitOrder(order),
+      IS_LIVE ? sealLiveOrder(qc, wallet, order) : mockChain.submitOrder(order),
   });
 }

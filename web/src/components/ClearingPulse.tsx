@@ -116,7 +116,7 @@ export function ClearingPulse() {
             Agent activity
           </h2>
           <p className="mt-1.5 max-w-xl text-balance font-mono text-[0.75rem] text-faint">
-            Each point is a round of hidden orders the agent matched and settled
+            Each point is a round of sealed orders the agent matched and settled
             on-chain. Hover a point for details.
           </p>
         </div>

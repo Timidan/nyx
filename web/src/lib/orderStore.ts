@@ -1,4 +1,7 @@
 import type { OrderRevealWire, OrderSide } from "../types";
+import { botChain } from "./chain";
+import { AUCTION_ADDRESS } from "./config";
+import { orderStorageKey } from "./orderPolicy";
 
 // Local record of orders this browser placed, keyed per wallet. Nothing here
 // is more private than the reveal preimage the agent already received; the
@@ -16,15 +19,15 @@ export interface StoredOrder {
   revealDelivered: boolean;
   /** kept only until delivered, for the retry button */
   reveal: OrderRevealWire | null;
+  /** Unix timestamp committed on-chain; after this the reveal cannot settle. */
+  expiresAt: number;
   createdAt: number;
 }
 
-const KEY_PREFIX = "nyx.orders.968.";
 const MAX_STORED = 50;
-const REVEAL_RETRY_TTL_MS = 30 * 60 * 1000;
 
 function storageKey(address: string): string {
-  return `${KEY_PREFIX}${address.toLowerCase()}`;
+  return orderStorageKey(botChain.id, AUCTION_ADDRESS ?? "mock", address);
 }
 
 export function loadOrders(address: string): StoredOrder[] {
@@ -44,10 +47,11 @@ export function loadOrders(address: string): StoredOrder[] {
 }
 
 function dropExpiredReveal(order: StoredOrder): StoredOrder {
+  const expiresAt = Number(order.expiresAt ?? order.reveal?.expiresAt ?? 0);
   if (
     order.revealDelivered ||
     order.reveal === null ||
-    Date.now() - order.createdAt <= REVEAL_RETRY_TTL_MS
+    (Number.isFinite(expiresAt) && Date.now() < expiresAt * 1000)
   ) {
     return order;
   }

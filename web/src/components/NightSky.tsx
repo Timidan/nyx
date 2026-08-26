@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * NightSky — the interactive constellation backdrop. Nyx runs an agent that
- * matches hidden orders, so the page sits over a living agent network: ~100
+ * matches sealed orders, so the page sits over a living agent network: ~100
  * drifting nodes under a deep-space gradient, edges forming between nodes
  * that come within reach, the net brightening toward mint and tightening
  * around the cursor while nodes shy away from it, and mint pulses

@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { erc20Abi, formatUnits } from "viem";
-import { useAccount } from "wagmi";
 import { publicClient } from "../lib/clients";
 import { IS_LIVE } from "../lib/config";
+import { useBrowserWallet } from "../lib/wallet";
 import { useAuctionMeta } from "./useAuctionMeta";
 import type { AuctionMeta } from "../types";
 
@@ -50,7 +50,7 @@ async function fetchLiveBalances(
  * Mock mode: static playful balances so the simulator is self-contained.
  */
 export function useWalletBalances() {
-  const { address } = useAccount();
+  const { address } = useBrowserWallet();
   const { data: meta } = useAuctionMeta();
 
   return useQuery<WalletBalances>({

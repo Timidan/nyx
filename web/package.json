@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --experimental-strip-types --test src/lib/orderPolicy.test.ts src/lib/walletPolicy.test.ts",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
@@ -12,8 +13,7 @@
     "@tanstack/react-query": "^5.62.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "viem": "^2.21.55",
-    "wagmi": "^2.14.6"
+    "viem": "^2.21.55"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

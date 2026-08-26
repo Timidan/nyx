@@ -29,10 +29,9 @@ async function fetchLiveBatches(): Promise<Batch[]> {
       batchId: Number(log.args.batchId ?? 0n),
       matchCount: Number(log.args.matchCount ?? 0n),
       clearingPrice: fromX18(log.args.clearingPriceX18 ?? 0n),
+      referencePrice: fromX18(log.args.referencePriceX18 ?? 0n),
       reason: Number(log.args.reason ?? 0),
       txHash: log.transactionHash,
-      settledAt: 0, // block timestamp not fetched — nothing renders it
-      referencePrice: fromX18(log.args.referencePriceX18 ?? 0n),
       settlementHash: log.args.settlementHash,
     }))
     .slice(-200);

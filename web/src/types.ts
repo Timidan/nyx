@@ -9,12 +9,11 @@ export interface Batch {
   matchCount: number;
   /** human units — clearingPriceX18 formatted through 1e18 in live mode */
   clearingPrice: number;
+  /** contemporaneous V3 TWAP reference, when emitted by a live deployment */
+  referencePrice?: number;
   /** reason code 0-4, see lib/reasons.ts */
   reason: number;
   txHash: `0x${string}`;
-  settledAt: number; // epoch ms (0 for live logs — not displayed)
-  /** referencePriceX18 formatted through 1e18; live mode only */
-  referencePrice?: number;
   settlementHash?: `0x${string}`;
 }
 
@@ -73,6 +72,7 @@ export interface OrderRevealWire {
   sellToken: `0x${string}`;
   sellAmount: string;
   minBuyAmount: string;
+  expiresAt: string;
   salt: `0x${string}`;
 }
 

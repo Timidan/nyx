@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
-import type { Connector } from "wagmi";
 import { truncateHash } from "../lib/format";
+import { useBrowserWallet } from "../lib/wallet";
+import type { DiscoveredWallet } from "../lib/walletPolicy";
 import { useToast } from "./ToastProvider";
 
 /** Header wallet control — secondary button recipe from the design system.
@@ -12,14 +12,13 @@ import { useToast } from "./ToastProvider";
  *  (stable ids like "io.rabby"); the generic one is only a fallback when
  *  discovery found nothing. */
 export function ConnectButton() {
-  const { address, isConnected } = useAccount();
-  const { connectAsync, connectors, isPending } = useConnect();
-  const { disconnect } = useDisconnect();
+  const { address, isConnected, isConnecting, wallets, connect, disconnect } =
+    useBrowserWallet();
   const { push } = useToast();
   const [showPicker, setShowPicker] = useState(false);
 
-  const discovered = connectors.filter((c) => c.id !== "injected");
-  const usable = discovered.length > 0 ? discovered : [...connectors];
+  const discovered = wallets.filter((wallet) => wallet.id !== "injected");
+  const usable = discovered.length > 0 ? discovered : wallets;
 
   const base = "btn95 bg-surface px-4 py-2 text-[0.875rem] text-text";
 
@@ -36,10 +35,10 @@ export function ConnectButton() {
     );
   }
 
-  async function connectWith(connector: Connector) {
+  async function connectWith(wallet: DiscoveredWallet) {
     setShowPicker(false);
     try {
-      await connectAsync({ connector });
+      await connect(wallet);
     } catch (error) {
       const message = error as { shortMessage?: string; message?: string };
       push({
@@ -74,21 +73,21 @@ export function ConnectButton() {
       <button
         type="button"
         onClick={onConnect}
-        disabled={isPending}
+        disabled={isConnecting}
         className={`${base} disabled:opacity-60`}
       >
-        {isPending ? "Connecting…" : "Connect wallet"}
+        {isConnecting ? "Connecting…" : "Connect wallet"}
       </button>
       {showPicker && (
         <div className="absolute right-0 top-full z-20 mt-2 min-w-44 border-2 border-border bg-surface shadow-win">
-          {usable.map((connector) => (
+          {usable.map((wallet) => (
             <button
-              key={connector.uid}
+              key={wallet.id}
               type="button"
-              onClick={() => void connectWith(connector)}
+              onClick={() => void connectWith(wallet)}
               className="tap95 block w-full px-3 py-2 text-left text-[0.875rem] text-text hover:bg-navy hover:text-white"
             >
-              {connector.name}
+              {wallet.name}
             </button>
           ))}
         </div>

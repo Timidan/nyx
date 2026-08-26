@@ -1,12 +1,15 @@
 import { useState, type FormEvent } from "react";
-import { useAccount } from "wagmi";
+import { formatUnits } from "viem";
 import { useAgentState } from "../hooks/useAgentState";
+import { useAuctionAccess } from "../hooks/useAuctionAccess";
 import { useAuctionMeta } from "../hooks/useAuctionMeta";
 import { useSubmitOrder } from "../hooks/useSubmitOrder";
 import { useWalletBalances } from "../hooks/useWalletBalances";
 import { postOrderReveal } from "../lib/agentApi";
-import { IS_LIVE } from "../lib/config";
-import { fmtEst, trimNum, txUrl } from "../lib/format";
+import { ACCESS_REQUEST_URL, IS_LIVE, ORDER_TTL_SECONDS } from "../lib/config";
+import { fmtDur, fmtEst, trimNum, txUrl } from "../lib/format";
+import { markRevealDelivered } from "../lib/orderStore";
+import { useBrowserWallet } from "../lib/wallet";
 import { BousdtIcon, OrderPadIcon, PngIcon } from "./Icons";
 import { useToast } from "./ToastProvider";
 import { Window } from "./Window";
@@ -22,8 +25,9 @@ export function SealOrderPanel() {
   const [limit, setLimit] = useState("");
   const submit = useSubmitOrder();
   const { push } = useToast();
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useBrowserWallet();
   const { data: meta } = useAuctionMeta();
+  const { data: access } = useAuctionAccess();
   const { data: balances } = useWalletBalances();
   const { data: agent } = useAgentState();
 
@@ -33,8 +37,25 @@ export function SealOrderPanel() {
   const amountNum = Number(amount);
   const limitNum = Number(limit);
   const needsWallet = IS_LIVE && !isConnected;
+  const gateLoading = IS_LIVE && access === undefined;
+  const gateBlocked =
+    IS_LIVE &&
+    Boolean(access && (access.paused || (access.allowlistEnabled && !access.traderAllowed)));
   const valid =
-    amountNum > 0 && limitNum > 0 && !submit.isPending && !needsWallet;
+    amountNum > 0 &&
+    limitNum > 0 &&
+    !submit.isPending &&
+    !needsWallet &&
+    !gateLoading &&
+    !gateBlocked;
+
+  const selectedRisk = side === "sell" ? access?.base : access?.quote;
+  const selectedDecimals = side === "sell" ? meta?.base.decimals : meta?.quote.decimals;
+  const selectedSymbol = side === "sell" ? baseSymbol : quoteSymbol;
+  const perOrderCap =
+    selectedRisk && selectedDecimals !== undefined
+      ? trimNum(Number(formatUnits(selectedRisk.perOrder, selectedDecimals)), 6)
+      : null;
 
   // Display-only estimate: BOUSDT crossing the entered amount at the entered
   // price. Same for both sides (sell receives it, buy pays it); the actual
@@ -71,21 +92,25 @@ export function SealOrderPanel() {
     setLimit(marketPrice.toFixed(4));
   }
 
-  function retryReveal(reveal: OrderRevealWire) {
+  function retryReveal(
+    reveal: OrderRevealWire,
+    commitment?: `0x${string}`,
+  ) {
     postOrderReveal(reveal)
-      .then(() =>
+      .then(() => {
+        if (address && commitment) markRevealDelivered(address, commitment);
         push({
           variant: "settle",
           title: "Reveal delivered",
           message: "The agent has the order details.",
-        }),
-      )
+        });
+      })
       .catch(() =>
         push({
           variant: "alert",
           title: "Reveal still not delivered",
           message: "The agent API is unreachable. Retry when it is back.",
-          action: { label: "Retry", onClick: () => retryReveal(reveal) },
+          action: { label: "Retry", onClick: () => retryReveal(reveal, commitment) },
         }),
       );
   }
@@ -94,7 +119,9 @@ export function SealOrderPanel() {
     push({
       variant: "settle",
       title: "Order placed",
-      message: "Hidden until the agent settles it.",
+      message: res.revealDelivered
+        ? "Commitment confirmed; the reveal reached the matching agent."
+        : "Commitment confirmed; the reveal still needs delivery.",
       href: res.txHash ? txUrl(res.txHash) : undefined,
       hrefLabel: "receipt ↗",
     });
@@ -105,7 +132,10 @@ export function SealOrderPanel() {
         title: "Reveal not delivered",
         message:
           "Placed on-chain, but the agent hasn't received the order details. It stays unmatched until it does.",
-        action: { label: "Retry", onClick: () => retryReveal(reveal) },
+        action: {
+          label: "Retry",
+          onClick: () => retryReveal(reveal, res.commitment),
+        },
       });
     }
   }
@@ -135,12 +165,47 @@ export function SealOrderPanel() {
   return (
     <Window title="place-order.exe" icon={<OrderPadIcon />}>
       <h2 className="font-display text-[1.25rem] font-semibold text-text">
-        Place a hidden order
+        Place a sealed order
       </h2>
       <p className="mt-1 mb-4 text-balance text-[0.875rem] leading-snug text-muted">
-        Your order stays hidden until the agent settles it. Only the final
-        price becomes public.
+        Your side, size, and escrow are public on submission. The limit and
+        salt go to the matching agent, then become public if the order settles.
       </p>
+
+      {IS_LIVE && access?.paused && (
+        <p className="sunken95 mb-4 px-3 py-2 font-mono text-[0.75rem] text-alert">
+          Launch paused. New escrow is disabled; existing refunds and claims remain open.
+        </p>
+      )}
+      {IS_LIVE &&
+        access?.allowlistEnabled &&
+        !access.paused &&
+        !access.traderAllowed && (
+          <p className="sunken95 mb-4 px-3 py-2 font-mono text-[0.75rem] text-amber">
+            Capped canary: this wallet is not yet approved to place orders.
+            {ACCESS_REQUEST_URL && (
+              <>
+                {" "}
+                <a
+                  href={ACCESS_REQUEST_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-link underline hover:no-underline"
+                >
+                  Request access ↗
+                </a>
+              </>
+            )}
+          </p>
+        )}
+      {IS_LIVE &&
+        access?.allowlistEnabled &&
+        access.traderAllowed &&
+        !access.paused && (
+          <p className="mb-4 font-mono text-[0.6875rem] text-settle">
+            Approved canary wallet · per-order cap {perOrderCap ?? "—"} {selectedSymbol}
+          </p>
+        )}
 
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
@@ -224,7 +289,7 @@ export function SealOrderPanel() {
               onClick={fillMarket}
               className="btn95 bg-surface px-2 py-0.5 font-mono text-[0.6875rem] text-text hover:bg-surface-2 disabled:cursor-not-allowed disabled:bg-ground disabled:text-faint"
             >
-              Market
+              TWAP
             </button>
           </div>
         </div>
@@ -252,8 +317,11 @@ export function SealOrderPanel() {
             </span>
           </div>
           <p className="mt-1.5 text-[0.6875rem] leading-snug text-muted">
-            Estimate at this price. The agent settles at a single clearing price
-            within the pool's deviation guard.
+            Estimate at this price. Settlement uses one clearing price guarded
+            against the configured V3 TWAP oracle.
+          </p>
+          <p className="mt-1 font-mono text-[0.6875rem] text-faint">
+            Unmatched orders expire in about {fmtDur(ORDER_TTL_SECONDS)} and can then be refunded.
           </p>
         </div>
 
@@ -262,11 +330,22 @@ export function SealOrderPanel() {
           disabled={!valid}
           className="btn95 w-full bg-navy px-4 py-2.5 font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-faint disabled:hover:brightness-100"
         >
-          {submit.isPending ? "Placing…" : "Place hidden order"}
+          {submit.isPending
+            ? "Placing…"
+            : access?.paused
+              ? "Launch paused"
+              : access?.allowlistEnabled && !access.traderAllowed
+                ? "Canary access required"
+                : "Place sealed order"}
         </button>
         {needsWallet && (
           <p className="font-mono text-[0.75rem] text-faint">
             Connect a wallet to place orders.
+          </p>
+        )}
+        {gateLoading && !needsWallet && (
+          <p className="font-mono text-[0.75rem] text-faint">
+            Checking launch controls on-chain…
           </p>
         )}
       </form>

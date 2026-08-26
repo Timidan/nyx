@@ -6,17 +6,36 @@ broadcast/
 .env
 .env.*
 !.env.example
+!.env.mainnet.example
 *.local
+# populated host env files carry AGENT_PRIVATE_KEY and bearer tokens. They do
+# not match `.env` or `.env.*`, so they need naming explicitly.
+*.env
+!*.env.example
+deploy/luxvps/nyx-agent.env
+deploy/luxvps/compose.env
 
-# internal docs (working notes, submission ops — not for the public repo)
+# internal docs and working data (not for the public repo). The public docs
+# set is exactly what README.md links to: ARCHITECTURE, DEPLOY, INTERFACES,
+# PRODUCTION_READINESS, plus the two assets it embeds.
+docs/pitch/
+contracts/x-ray/
+# stray output from an unexpanded shell variable
+$SS/
 HACKATHON.md
 hackathon details.md
 nyx-botchain-plan.md
 docs/FEATURE_IDEAS.md
 docs/CLAUDE_ARCHITECTURE_NOTES.md
-docs/PRODUCTION_READINESS.md
 PRODUCT.md
 DESIGN.md
 docs/HANDOFF.md
 /tmp/handoff-*.md
 docs/DEMO.md
+
+# brand assets that nothing references. nyx-logo.svg and nyx-ui.png are in the
+# README and ship; the rest are unused variants.
+docs/assets/*
+!docs/assets/nyx-logo.svg
+!docs/assets/nyx-ui.png
+docs/pitch*

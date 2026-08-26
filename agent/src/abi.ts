@@ -1,6 +1,34 @@
 export const nyxBatchAuctionAbi = [
   {
     type: "function",
+    name: "token0",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "token1",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "referenceOracle",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "paused",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
     name: "currentBatchId",
     stateMutability: "view",
     inputs: [],
@@ -48,6 +76,7 @@ export const nyxBatchAuctionAbi = [
           { name: "sellToken", type: "address" },
           { name: "sellAmount", type: "uint256" },
           { name: "minBuyAmount", type: "uint256" },
+          { name: "expiresAt", type: "uint64" },
           { name: "salt", type: "bytes32" },
         ],
       },
@@ -65,6 +94,7 @@ export const nyxBatchAuctionAbi = [
       { name: "sellToken", type: "address" },
       { name: "sellAmount", type: "uint256" },
       { name: "submittedAt", type: "uint64" },
+      { name: "expiresAt", type: "uint64" },
       { name: "status", type: "uint8" },
     ],
   },
@@ -90,6 +120,7 @@ export const nyxBatchAuctionAbi = [
               { name: "sellToken", type: "address" },
               { name: "sellAmount", type: "uint256" },
               { name: "minBuyAmount", type: "uint256" },
+              { name: "expiresAt", type: "uint64" },
               { name: "salt", type: "bytes32" },
             ],
           },
@@ -110,6 +141,7 @@ export const nyxBatchAuctionAbi = [
       { name: "trader", type: "address", indexed: true },
       { name: "sellToken", type: "address", indexed: false },
       { name: "sellAmount", type: "uint256", indexed: false },
+      { name: "expiresAt", type: "uint64", indexed: false },
     ],
   },
   {
@@ -165,6 +197,37 @@ export const nyxBatchAuctionAbi = [
   },
 ] as const;
 
+export const nyxPriceOracleAbi = [
+  {
+    type: "function",
+    name: "baseToken",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "quoteToken",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "pool",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "factory",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
+
 export const erc20Abi = [
   {
     type: "function",
@@ -179,33 +242,5 @@ export const erc20Abi = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint8" }],
-  },
-] as const;
-
-export const pairAbi = [
-  {
-    type: "function",
-    name: "token0",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
-  },
-  {
-    type: "function",
-    name: "token1",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
-  },
-  {
-    type: "function",
-    name: "getReserves",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [
-      { name: "reserve0", type: "uint112" },
-      { name: "reserve1", type: "uint112" },
-      { name: "blockTimestampLast", type: "uint32" },
-    ],
   },
 ] as const;

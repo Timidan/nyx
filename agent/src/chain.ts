@@ -4,14 +4,15 @@ import {
   defineChain,
   getAddress,
   http,
+  keccak256,
   type PublicClient,
   type WalletClient,
 } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
-import { erc20Abi, nyxBatchAuctionAbi, pairAbi } from "./abi.js";
-import { toX18 } from "./math.js";
+import { erc20Abi, nyxBatchAuctionAbi, nyxPriceOracleAbi } from "./abi.js";
 import type { AgentConfig } from "./config.js";
-import type { Address, DexSnapshot, Hex32, MatchedOrder, OrderReveal, TokenInfo } from "./types.js";
+import type { Address, Hex32, MarketSnapshot, MatchedOrder, OrderReveal, TokenInfo } from "./types.js";
+import type { StartupState } from "./startup.js";
 
 const MAX_RPC_LOG_BLOCK_RANGE = 5_000n;
 const LOG_SCAN_CONCURRENCY = 8;
@@ -21,6 +22,12 @@ type AuctionEventLog = {
   blockNumber: bigint | null;
   logIndex: number | null;
 };
+
+export interface LatestBatchSettlement {
+  reason: number;
+  blockNumber: bigint;
+  timestamp: number;
+}
 
 export function splitBlockRange(
   fromBlock: bigint,
@@ -36,6 +43,23 @@ export function splitBlockRange(
     ranges.push({ fromBlock: start, toBlock: end < toBlock ? end : toBlock });
   }
   return ranges;
+}
+
+export function assertSuccessfulReceipt(receipt: { status: string }): void {
+  if (receipt.status !== "success") {
+    throw new Error("settlement transaction reverted on-chain");
+  }
+}
+
+export function selectLatestSettlementLog(logs: AuctionEventLog[]): AuctionEventLog | null {
+  return logs.reduce<AuctionEventLog | null>((best, log) => {
+    if (!best) return log;
+    const bestBlock = best.blockNumber ?? 0n;
+    const logBlock = log.blockNumber ?? 0n;
+    if (logBlock > bestBlock) return log;
+    if (logBlock < bestBlock) return best;
+    return BigInt(log.logIndex ?? 0) > BigInt(best.logIndex ?? 0) ? log : best;
+  }, null);
 }
 
 export function makeChain(config: AgentConfig) {
@@ -66,48 +90,115 @@ export function makeWalletClient(config: AgentConfig, privateKey: `0x${string}`)
   };
 }
 
-export async function readDexSnapshot(
+export async function readStartupState(
   publicClient: PublicClient,
   config: AgentConfig,
-): Promise<DexSnapshot> {
-  const [pairToken0, pairToken1, reserves, wbotInfo, bousdtInfo] = await Promise.all([
-    publicClient.readContract({ address: config.dexPair, abi: pairAbi, functionName: "token0" }),
-    publicClient.readContract({ address: config.dexPair, abi: pairAbi, functionName: "token1" }),
-    publicClient.readContract({ address: config.dexPair, abi: pairAbi, functionName: "getReserves" }),
+  signer?: Address,
+): Promise<StartupState> {
+  if (!config.auctionAddress) throw new Error("NYX_BATCH_AUCTION is required");
+  const [chainId, latestBlock, bytecode, token0, token1, referenceOracle, contractAgent, paused] =
+    await Promise.all([
+      publicClient.getChainId(),
+      publicClient.getBlockNumber(),
+      publicClient.getBytecode({ address: config.auctionAddress }),
+      publicClient.readContract({
+        address: config.auctionAddress,
+        abi: nyxBatchAuctionAbi,
+        functionName: "token0",
+      }),
+      publicClient.readContract({
+        address: config.auctionAddress,
+        abi: nyxBatchAuctionAbi,
+        functionName: "token1",
+      }),
+      publicClient.readContract({
+        address: config.auctionAddress,
+        abi: nyxBatchAuctionAbi,
+        functionName: "referenceOracle",
+      }),
+      publicClient.readContract({
+        address: config.auctionAddress,
+        abi: nyxBatchAuctionAbi,
+        functionName: "agent",
+      }),
+      publicClient.readContract({
+        address: config.auctionAddress,
+        abi: nyxBatchAuctionAbi,
+        functionName: "paused",
+      }),
+    ]);
+  if (!bytecode || bytecode === "0x") throw new Error("auction has no runtime bytecode");
+
+  const oracleAddress = getAddress(referenceOracle);
+  const [oracleBaseToken, oracleQuoteToken, oraclePool, oracleFactory] = await Promise.all([
+    publicClient.readContract({
+      address: oracleAddress,
+      abi: nyxPriceOracleAbi,
+      functionName: "baseToken",
+    }),
+    publicClient.readContract({
+      address: oracleAddress,
+      abi: nyxPriceOracleAbi,
+      functionName: "quoteToken",
+    }),
+    publicClient.readContract({
+      address: oracleAddress,
+      abi: nyxPriceOracleAbi,
+      functionName: "pool",
+    }),
+    // Oracles deployed before the canonical pool binding have no factory().
+    // Startup validation decides whether an absent answer is fatal.
+    publicClient
+      .readContract({ address: oracleAddress, abi: nyxPriceOracleAbi, functionName: "factory" })
+      .catch(() => undefined),
+  ]);
+
+  return {
+    chainId,
+    latestBlock,
+    auctionCodeHash: keccak256(bytecode),
+    token0: getAddress(token0),
+    token1: getAddress(token1),
+    referenceOracle: oracleAddress,
+    oracleBaseToken: getAddress(oracleBaseToken),
+    oracleQuoteToken: getAddress(oracleQuoteToken),
+    oraclePool: getAddress(oraclePool),
+    oracleFactory: oracleFactory ? getAddress(oracleFactory) : undefined,
+    contractAgent: getAddress(contractAgent),
+    signer,
+    paused,
+  };
+}
+
+export async function readMarketSnapshot(
+  publicClient: PublicClient,
+  config: AgentConfig,
+  referencePriceX18: bigint,
+): Promise<MarketSnapshot> {
+  const [wbotInfo, bousdtInfo] = await Promise.all([
     readTokenInfo(publicClient, config.wbot),
     readTokenInfo(publicClient, config.bousdt),
   ]);
-
-  const [reserve0, reserve1] = reserves;
-  const wbotReserve = sameAddress(pairToken0, config.wbot) ? reserve0 : reserve1;
-  const bousdtReserve = sameAddress(pairToken0, config.bousdt) ? reserve0 : reserve1;
-  const wbotX18 = toX18(wbotReserve, wbotInfo.decimals);
-  const bousdtX18 = toX18(bousdtReserve, bousdtInfo.decimals);
-  if (wbotX18 === 0n || bousdtX18 === 0n) {
-    throw new Error("BOT DEX reference pair has zero reserve");
-  }
-
   return {
-    pair: config.dexPair,
-    pairToken0: getAddress(pairToken0),
-    pairToken1: getAddress(pairToken1),
-    reserve0,
-    reserve1,
     token0: wbotInfo,
     token1: bousdtInfo,
-    referencePriceX18: (bousdtX18 * 1_000000000000000000n) / wbotX18,
+    referencePriceX18,
   };
 }
 
 export async function readAuctionSnapshot(
   publicClient: PublicClient,
   config: AgentConfig,
-): Promise<{ currentBatchId: bigint | null; referencePriceX18: bigint | null }> {
+): Promise<{
+  currentBatchId: bigint | null;
+  referencePriceX18: bigint | null;
+  paused: boolean;
+}> {
   if (!config.auctionAddress) {
-    return { currentBatchId: null, referencePriceX18: null };
+    return { currentBatchId: null, referencePriceX18: null, paused: true };
   }
 
-  const [currentBatchId, referencePriceX18] = await Promise.all([
+  const [currentBatchId, referencePriceX18, paused] = await Promise.all([
     publicClient.readContract({
       address: config.auctionAddress,
       abi: nyxBatchAuctionAbi,
@@ -118,8 +209,13 @@ export async function readAuctionSnapshot(
       abi: nyxBatchAuctionAbi,
       functionName: "getReferencePriceX18",
     }),
+    publicClient.readContract({
+      address: config.auctionAddress,
+      abi: nyxBatchAuctionAbi,
+      functionName: "paused",
+    }),
   ]);
-  return { currentBatchId, referencePriceX18 };
+  return { currentBatchId, referencePriceX18, paused };
 }
 
 export async function hashOrder(
@@ -145,15 +241,16 @@ export async function readOrder(
   sellToken: Address;
   sellAmount: bigint;
   submittedAt: bigint;
+  expiresAt: bigint;
   status: number;
 }> {
-  const [trader, batchId, sellToken, sellAmount, submittedAt, status] =
+  const [trader, batchId, sellToken, sellAmount, submittedAt, expiresAt, status] =
     (await publicClient.readContract({
       address: auctionAddress,
       abi: nyxBatchAuctionAbi,
       functionName: "getOrder",
       args: [commitment],
-    })) as [Address, bigint, Address, bigint, bigint, number];
+    })) as [Address, bigint, Address, bigint, bigint, bigint, number];
 
   return {
     trader: getAddress(trader),
@@ -161,6 +258,7 @@ export async function readOrder(
     sellToken: getAddress(sellToken),
     sellAmount,
     submittedAt,
+    expiresAt,
     status: Number(status),
   };
 }
@@ -191,6 +289,13 @@ export async function readLatestBatchSettledReason(
   publicClient: PublicClient,
   config: AgentConfig,
 ): Promise<number | null> {
+  return (await readLatestBatchSettlement(publicClient, config))?.reason ?? null;
+}
+
+export async function readLatestBatchSettlement(
+  publicClient: PublicClient,
+  config: AgentConfig,
+): Promise<LatestBatchSettlement | null> {
   if (!config.auctionAddress) return null;
 
   const latestBlock = await publicClient.getBlockNumber();
@@ -210,15 +315,15 @@ export async function readLatestBatchSettledReason(
         }),
       )
     ).flat();
-    const latest = settled.reduce<AuctionEventLog | null>((best, log) => {
-      if (!best) return log;
-      const bestBlock = best.blockNumber ?? 0n;
-      const logBlock = log.blockNumber ?? 0n;
-      if (logBlock > bestBlock) return log;
-      if (logBlock < bestBlock) return best;
-      return BigInt(log.logIndex ?? 0) > BigInt(best.logIndex ?? 0) ? log : best;
-    }, null);
-    if (latest?.args.reason != null) return Number(latest.args.reason);
+    const latest = selectLatestSettlementLog(settled);
+    if (latest?.args.reason != null && latest.blockNumber != null) {
+      const block = await publicClient.getBlock({ blockNumber: latest.blockNumber });
+      return {
+        reason: Number(latest.args.reason),
+        blockNumber: latest.blockNumber,
+        timestamp: Number(block.timestamp),
+      };
+    }
   }
   return null;
 }
@@ -242,27 +347,18 @@ export async function simulateSettle(
   });
 }
 
-export async function sendSettleWithGasBump(
+export async function sendSettleWithGasBuffer(
   publicClient: PublicClient,
   walletClient: WalletClient,
   request: Parameters<WalletClient["writeContract"]>[0],
-  maxRetries: number,
 ): Promise<Hex32> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const gas = await publicClient.estimateContractGas(request as never);
-      const multiplier = 100n + BigInt(attempt * 25);
-      return (await walletClient.writeContract({
-        ...request,
-        gas: (gas * multiplier) / 100n,
-      } as never)) as Hex32;
-    } catch (error) {
-      lastError = error;
-      await sleep(750 * (attempt + 1));
-    }
-  }
-  throw lastError;
+  const gas = await publicClient.estimateContractGas(request as never);
+  // Submit once. An RPC error after write may be ambiguous, so replaying here
+  // could send a second settlement transaction. Recovery reconciles by chain.
+  return (await walletClient.writeContract({
+    ...request,
+    gas: (gas * 125n) / 100n,
+  } as never)) as Hex32;
 }
 
 async function readTokenInfo(publicClient: PublicClient, address: Address): Promise<TokenInfo> {
@@ -271,12 +367,4 @@ async function readTokenInfo(publicClient: PublicClient, address: Address): Prom
     publicClient.readContract({ address, abi: erc20Abi, functionName: "decimals" }),
   ]);
   return { address, symbol, decimals };
-}
-
-function sameAddress(a: string, b: string): boolean {
-  return a.toLowerCase() === b.toLowerCase();
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

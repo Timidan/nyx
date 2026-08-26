@@ -69,21 +69,42 @@ Live pool facts re-read the same day:
   9.73 on Coinstore, so the pool the oracle reads is the pool BOT Chain's own
   price route uses.
 
-This evidence is about source and current pool compatibility. It does not prove
-future pool depth, hosted-process correctness, key custody, or a not-yet-created
-deployment. The preflight script's deployment section has never run against a
-real deployment, because none exists; run it in a fork before trusting it on
-the day.
+### Fork rehearsal, 2026-08-26
+
+The post-deployment half of the gate is no longer theoretical. A full
+deployment was run against an anvil fork of chain 677 at block 21,032,697 using
+published test keys, and both verification paths were exercised end to end.
+
+The rehearsal found a real defect. `Deploy.s.sol` only *starts* the two-step
+ownership handoff, so a correct deployment sits with `owner() == deployer` and
+`pendingOwner() == OWNER_ADDRESS` until the intended owner accepts. The
+preflight asserted the finished state unconditionally and therefore reported
+two failures on a good deployment, which would have taught an operator to
+ignore the gate. It now recognises both stages, warns in
+`PREFLIGHT_STAGE=post-deploy`, and fails closed on a pending handoff otherwise.
+
+| Path | Result |
+|---|---|
+| Deployment from `Deploy.s.sol` | Succeeded; auction paused and allowlisted |
+| Preflight, `PREFLIGHT_STAGE=post-deploy` | 29 checks, pending handoff reported as a warning |
+| Preflight, default, handoff not accepted | Blocks, naming `acceptOwnership` |
+| Preflight, default, handoff accepted | 29 checks pass |
+| Agent startup against the deployment | Verified chain, block, code hash, pair, oracle, pool, factory and authority; read 9.923323 USDT/WBOT through the deployed oracle |
+| Agent startup, seven injected drifts | Every one refused: code hash, chain id, oracle factory, pool, agent authority, `START_BLOCK` past head, `START_BLOCK` zero |
+
+This evidence is about source, current pool compatibility, and a rehearsed
+deployment. It does not prove future pool depth, hosted-process correctness, or
+key custody.
 
 ## Required before the first canary order
 
 - Fresh oracle and auction deployment from the reviewed commit.
 - `scripts/preflight-mainnet.sh .env.mainnet` exits zero, run immediately before
-  the deployment and again immediately before unpause. Its post-deployment
-  branch has never executed against a real deployment, so run it once in a fork
-  before relying on it. It also gates on two independent price feeds; waiving
-  that with `PREFLIGHT_SKIP_PRICE_CROSSCHECK=1` is a deliberate decision, not a
-  default.
+  the deployment, again after the ownership handoff is accepted, and again
+  immediately before unpause. Use `PREFLIGHT_STAGE=post-deploy` only for the run
+  between broadcast and `acceptOwnership`. It gates on two independent price
+  feeds; waiving that with `PREFLIGHT_SKIP_PRICE_CROSSCHECK=1` is a deliberate
+  decision, not a default.
 - `BOT_V3_FACTORY` set to the published BDEX factory, so a mistyped or seeded
   pool address fails in the oracle constructor rather than at first settlement.
 - `paused() == true`, `allowlistEnabled() == true`, expected tokens/oracle/agent,

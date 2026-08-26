@@ -35,6 +35,8 @@ expect() { # label expected actual
 
 lower() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 
+ZERO="0x0000000000000000000000000000000000000000"
+
 require_env() {
   local missing=0 name
   for name in "$@"; do
@@ -246,14 +248,35 @@ if [ -n "${NYX_BATCH_AUCTION:-}" ]; then
     "$(lower "$(call "$NYX_BATCH_AUCTION" 'token0()(address)')") $(lower "$(call "$NYX_BATCH_AUCTION" 'token1()(address)')")"
   expect "agent is the configured signer" \
     "$(lower "$AGENT_ADDRESS")" "$(lower "$(call "$NYX_BATCH_AUCTION" 'agent()(address)')")"
-  expect "owner is the intended account" \
-    "$(lower "$OWNER_ADDRESS")" "$(lower "$(call "$NYX_BATCH_AUCTION" 'owner()(address)')")"
   expect "no agent handoff is pending" \
-    "0x0000000000000000000000000000000000000000" \
-    "$(lower "$(call "$NYX_BATCH_AUCTION" 'pendingAgent()(address)')")"
-  expect "no ownership handoff is pending" \
-    "0x0000000000000000000000000000000000000000" \
-    "$(lower "$(call "$NYX_BATCH_AUCTION" 'pendingOwner()(address)')")"
+    "$ZERO" "$(lower "$(call "$NYX_BATCH_AUCTION" 'pendingAgent()(address)')")"
+
+  # Ownership is a two-step handoff and Deploy.s.sol only starts it, so a
+  # correct deployment sits with owner == deployer and pendingOwner == the
+  # intended owner until that owner calls acceptOwnership(). Asserting the
+  # finished state unconditionally reds a good deploy and teaches the operator
+  # to ignore this gate. Both stages are recognised; only the finished one
+  # clears by default.
+  OWNER_NOW="$(lower "$(call "$NYX_BATCH_AUCTION" 'owner()(address)')")"
+  OWNER_PENDING="$(lower "$(call "$NYX_BATCH_AUCTION" 'pendingOwner()(address)')")"
+  if [ "$OWNER_NOW" = "$(lower "$OWNER_ADDRESS")" ] && [ "$OWNER_PENDING" = "$ZERO" ]; then
+    pass "ownership handoff is complete"
+  elif [ "$OWNER_PENDING" = "$(lower "$OWNER_ADDRESS")" ]; then
+    if [ "${PREFLIGHT_STAGE:-pre-unpause}" = "post-deploy" ]; then
+      CHECKS=$((CHECKS + 1))
+      printf '%s warn %s%s\n' "$c_dim" "$c_off" \
+        "ownership handoff started, not yet accepted (expected right after deployment)"
+      note "accept from $OWNER_ADDRESS, then re-run without PREFLIGHT_STAGE=post-deploy"
+    else
+      fail "ownership handoff is complete" \
+        "owner $(lower "$OWNER_ADDRESS"), no pending" \
+        "owner $OWNER_NOW, pending $OWNER_PENDING (call acceptOwnership first)"
+    fi
+  else
+    fail "ownership handoff is complete" \
+      "owner or pendingOwner = $(lower "$OWNER_ADDRESS")" \
+      "owner $OWNER_NOW, pending $OWNER_PENDING"
+  fi
 
   section "canary wallets"
   # An auction whose two wallets are the same account cannot produce genuine

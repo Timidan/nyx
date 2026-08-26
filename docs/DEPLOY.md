@@ -69,7 +69,31 @@ MAINNET_RPC_URL="$RPC_URL" forge test --force \
 cd ..
 ```
 
-## 2. Simulate, then broadcast
+## 2. Rehearse on a fork
+
+Do this once before touching mainnet. It costs nothing, uses published test
+keys, and it is the only way to exercise the post-deployment half of the
+preflight and the agent's startup verification before the day itself.
+
+```bash
+BLOCK=$(cast block-number --rpc-url https://rpc.botchain.ai)
+anvil --fork-url https://rpc.botchain.ai --fork-block-number "$BLOCK" --port 8545 &
+
+# A copy of .env.mainnet with RPC_URL=http://127.0.0.1:8545 and anvil's
+# published accounts for owner, agent, trader and quote provider.
+# Anvil's first published test account. It is printed in every anvil banner
+# and holds nothing on any real network. Never use a real key on a fork, and
+# never put a real key in a file.
+export DEPLOYER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+cd contracts && forge script script/Deploy.s.sol:Deploy \
+  --rpc-url http://127.0.0.1:8545 --chain-id 677 --broadcast && cd ..
+```
+
+Fill the fork env with the deployed addresses and run steps 3 and 4 against it.
+Everything should behave exactly as it will on mainnet, including the ownership
+handoff staging below.
+
+## 3. Simulate, then broadcast
 
 `Deploy.s.sol` requires explicit raw-unit caps. It deploys the oracle, deploys
 the auction, installs both token cap sets, optionally allowlists the founding
@@ -101,7 +125,21 @@ NYX_BATCH_AUCTION=0x...
 START_BLOCK=123456
 ```
 
-## 3. Verify the deployed state before any opening transaction
+## 4. Verify the deployed state before any opening transaction
+
+The preflight covers every read below in one command. Run it in
+`post-deploy` mode first, because `Deploy.s.sol` only *starts* the ownership
+handoff and the default mode refuses to clear until that handoff is accepted:
+
+```bash
+PREFLIGHT_STAGE=post-deploy scripts/preflight-mainnet.sh .env.mainnet
+```
+
+Then accept ownership from the intended owner, and re-run with no stage flag.
+The plain invocation is the gate for everything after this point, and it fails
+closed on a pending handoff.
+
+The individual reads, if you want them by hand:
 
 ```bash
 cast call "$NYX_BATCH_AUCTION" "paused()(bool)" --rpc-url "$RPC_URL"
@@ -142,7 +180,7 @@ cast send "$NYX_BATCH_AUCTION" "acceptOwnership()" \
 
 Re-read `owner()` and `pendingOwner()`; the latter must now be zero.
 
-## 4. Start the agent fail-closed
+## 5. Start the agent fail-closed
 
 The agent validates chain ID, deployment block, exact runtime code hash, token
 pair, oracle, V3 pool, settlement authority, and signer before recovering
@@ -180,7 +218,7 @@ curl -sS https://agent.example.com/quote-requests \
 `/health` must report deployment verification, the expected authority, and the
 paused state before opening.
 
-## 5. Open only the capped two-wallet canary
+## 6. Open only the capped two-wallet canary
 
 The founding trader and quote provider must be distinct wallets; the matcher
 and contract reject one wallet appearing on opposite sides. Both must already
@@ -219,7 +257,7 @@ Only change caps or allowlist mode while paused. Do not disable the allowlist
 until independent review, monitoring, and repeated canary settlements justify
 the larger exposure.
 
-## 6. Publish the web build
+## 7. Publish the web build
 
 Set the `VITE_*` values from `.env.mainnet.example`, including
 `VITE_REQUIRE_LIVE=true`, the 15-minute order TTL, and real application links.

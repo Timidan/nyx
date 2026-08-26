@@ -3,33 +3,54 @@ import { decide, reasonLabels, type Decision } from "./policy.js";
 import { toX18 } from "./math.js";
 import { buildComplementarySettlement } from "./matcher.js";
 import {
+  assertSuccessfulReceipt,
   hashOrder,
   makePublicClient,
   makeWalletClient,
   readAuctionSnapshot,
-  readDexSnapshot,
-  readLatestBatchSettledReason,
+  readMarketSnapshot,
+  readLatestBatchSettlement,
   readOrder,
+  readStartupState,
   readSubmittedStatuses,
-  sendSettleWithGasBump,
+  sendSettleWithGasBuffer,
   simulateSettle,
 } from "./chain.js";
 import { readAgentPrivateKey, type AgentConfig } from "./config.js";
 import { OrderStore } from "./store.js";
-import type { AgentStatus, DexSnapshot, Hex32, OrderReveal, QueuedOrder } from "./types.js";
+import { toQuoteRequest, type QuoteRequest } from "./quotes.js";
+import { validateStartupState, type StartupState } from "./startup.js";
+import type { AgentStatus, Hex32, MarketSnapshot, MatchedOrder, OrderReveal, QueuedOrder } from "./types.js";
+
+/** How many identical consecutive simulation failures a candidate set must
+ *  produce before the agent stops retrying it and sets the orders aside. */
+export const SIMULATION_FAILURES_BEFORE_QUARANTINE = 3;
+
+function settlementKey(matches: MatchedOrder[]): string {
+  return matches.map((match) => match.commitment).sort().join("|");
+}
 
 export class NyxAgent {
   private readonly publicClient: PublicClient;
   private readonly store: OrderStore;
   private currentBatchId: bigint | null = null;
   private referencePriceX18: bigint | null = null;
-  private dexSnapshot: DexSnapshot | null = null;
+  private marketSnapshot: MarketSnapshot | null = null;
   private lastDecision: Decision | null = null;
   private lastReason: number | null = null;
   private lastTx: Hex32 | null = null;
   private lastClearAt = Math.floor(Date.now() / 1000);
   private state = "starting";
   private running = false;
+  private cycleInFlight = false;
+  private auctionPaused = true;
+  private startupState: StartupState | null = null;
+  /** Consecutive simulation failures per candidate order set. Most causes are
+   *  transient: an oracle band the market walks back into, RPC disagreement, a
+   *  batch that rolled between read and simulate. Quarantining on the first
+   *  failure strands escrow that would have settled on the next cycle, so a
+   *  set has to fail repeatedly and identically before it is set aside. */
+  private simulationFailures = new Map<string, { reason: string; count: number }>();
 
   constructor(private readonly config: AgentConfig) {
     this.publicClient = makePublicClient(config);
@@ -38,21 +59,48 @@ export class NyxAgent {
 
   async init(): Promise<void> {
     await this.store.load();
+    if (this.config.auctionAddress) {
+      const signer = this.signerAddress();
+      const startupState = await readStartupState(this.publicClient, this.config, signer);
+      validateStartupState(this.config, startupState);
+      this.startupState = startupState;
+      this.auctionPaused = startupState.paused;
+    } else if (!this.config.dryRun) {
+      throw new Error("NYX_BATCH_AUCTION is required outside dry-run mode");
+    }
     await this.recover();
+  }
+
+  /** Counts consecutive identical failures for one candidate set and returns
+   *  the attempt number. A different failure reason restarts the count, so an
+   *  order set is only set aside once it fails the same way repeatedly. */
+  private recordSimulationFailure(key: string, reason: string): number {
+    const previous = this.simulationFailures.get(key);
+    const count = previous && previous.reason === reason ? previous.count + 1 : 1;
+    this.simulationFailures.set(key, { reason, count });
+    return count;
   }
 
   async recover(): Promise<void> {
     this.state = "recovering";
     const entries = this.store.all();
-    const [statuses, lastReason] = await Promise.all([
+    const [statuses, latestSettlement] = await Promise.all([
       readSubmittedStatuses(
         this.publicClient,
         this.config,
         entries.map((entry) => entry.commitment),
       ),
-      readLatestBatchSettledReason(this.publicClient, this.config),
+      readLatestBatchSettlement(this.publicClient, this.config),
     ]);
-    this.lastReason = lastReason;
+    this.lastReason = latestSettlement?.reason ?? null;
+    if (latestSettlement) {
+      this.lastClearAt = latestSettlement.timestamp;
+    } else if (this.config.fromBlock > 0n) {
+      const deploymentBlock = await this.publicClient.getBlock({
+        blockNumber: this.config.fromBlock,
+      });
+      this.lastClearAt = Number(deploymentBlock.timestamp);
+    }
     for (const entry of entries) {
       const onchainStatus = statuses.get(entry.commitment);
       if (onchainStatus === "settled" || onchainStatus === "cancelled") {
@@ -91,7 +139,8 @@ export class NyxAgent {
       !sameAddress(onchain.trader, order.trader) ||
       onchain.batchId !== order.batchId ||
       !sameAddress(onchain.sellToken, order.sellToken) ||
-      onchain.sellAmount !== order.sellAmount
+      onchain.sellAmount !== order.sellAmount ||
+      onchain.expiresAt !== order.expiresAt
     ) {
       throw new Error("reveal does not match submitted on-chain order");
     }
@@ -115,18 +164,24 @@ export class NyxAgent {
   async startLoop(): Promise<void> {
     if (this.running) return;
     this.running = true;
-    await this.runOnce().catch((error) => {
-      this.state = `error: ${(error as Error).message}`;
-      console.error(error);
-    });
+    await this.runLoopCycle();
 
     setInterval(() => {
-      if (!this.running) return;
-      this.runOnce().catch((error) => {
-        this.state = `error: ${(error as Error).message}`;
-        console.error(error);
-      });
+      void this.runLoopCycle();
     }, this.config.pollMs);
+  }
+
+  private async runLoopCycle(): Promise<void> {
+    if (!this.running || this.cycleInFlight) return;
+    this.cycleInFlight = true;
+    try {
+      await this.runOnce();
+    } catch (error) {
+      this.state = `error: ${(error as Error).message}`;
+      console.error(error);
+    } finally {
+      this.cycleInFlight = false;
+    }
   }
 
   getStatus(): AgentStatus {
@@ -164,32 +219,60 @@ export class NyxAgent {
     };
   }
 
+  getQuoteRequests(): QuoteRequest[] {
+    return this.queue().map(toQuoteRequest);
+  }
+
   async health() {
-    const [chainId, blockNumber] = await Promise.all([
-      this.publicClient.getChainId(),
-      this.publicClient.getBlockNumber(),
-    ]);
-    return {
-      ok: chainId === this.config.chainId,
-      process: { pid: process.pid, uptime: process.uptime() },
-      rpc: { chainId, blockNumber: blockNumber.toString() },
-      auctionConfigured: Boolean(this.config.auctionAddress),
-    };
+    try {
+      const current = await readStartupState(
+        this.publicClient,
+        this.config,
+        this.signerAddress(),
+      );
+      validateStartupState(this.config, current);
+      this.startupState = current;
+      return {
+        ok: true,
+        process: { pid: process.pid, uptime: process.uptime() },
+        rpc: { chainId: current.chainId, blockNumber: current.latestBlock.toString() },
+        auctionConfigured: true,
+        deploymentVerified: true,
+        auctionPaused: current.paused,
+        authority: current.contractAgent,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        process: { pid: process.pid, uptime: process.uptime() },
+        auctionConfigured: Boolean(this.config.auctionAddress),
+        deploymentVerified: false,
+        error: (error as Error).message,
+      };
+    }
   }
 
   private async perceive(): Promise<{ queue: QueuedOrder[] }> {
     this.state = "perceiving";
-    this.dexSnapshot = await readDexSnapshot(this.publicClient, this.config);
     const auction = await readAuctionSnapshot(this.publicClient, this.config);
+    this.auctionPaused = auction.paused;
     this.currentBatchId = auction.currentBatchId ?? 0n;
-    this.referencePriceX18 = auction.referencePriceX18 ?? this.dexSnapshot.referencePriceX18;
+    if (auction.referencePriceX18 == null) {
+      throw new Error("auction reference price is unavailable");
+    }
+    this.referencePriceX18 = auction.referencePriceX18;
+    this.marketSnapshot = await readMarketSnapshot(
+      this.publicClient,
+      this.config,
+      auction.referencePriceX18,
+    );
 
     this.state = "deciding";
     return { queue: this.queue() };
   }
 
   private decide(queue: QueuedOrder[]): Decision {
-    if (!this.dexSnapshot || this.currentBatchId == null || this.referencePriceX18 == null) {
+    if (!this.marketSnapshot || this.currentBatchId == null || this.referencePriceX18 == null) {
       throw new Error("perceive must run before decide");
     }
 
@@ -200,8 +283,8 @@ export class NyxAgent {
       secondsSinceLastClear: Math.max(0, Math.floor(Date.now() / 1000) - this.lastClearAt),
       token0: this.config.wbot,
       token1: this.config.bousdt,
-      token0Decimals: this.dexSnapshot.token0.decimals,
-      token1Decimals: this.dexSnapshot.token1.decimals,
+      token0Decimals: this.marketSnapshot.token0.decimals,
+      token1Decimals: this.marketSnapshot.token1.decimals,
       depthMin: this.config.depthMin,
       imbalanceBps: this.config.imbalanceBps,
       notionalMaxX18: this.config.notionalMaxX18,
@@ -211,6 +294,10 @@ export class NyxAgent {
   }
 
   private async act(decision: Decision, queue: QueuedOrder[]): Promise<void> {
+    if (this.auctionPaused) {
+      this.state = "paused: waiting for owner";
+      return;
+    }
     if (decision.reason == null) {
       this.state = "watching";
       return;
@@ -219,7 +306,7 @@ export class NyxAgent {
       this.state = "waiting: NYX_BATCH_AUCTION not configured";
       return;
     }
-    if (!this.dexSnapshot || this.currentBatchId == null || this.referencePriceX18 == null) {
+    if (!this.marketSnapshot || this.currentBatchId == null || this.referencePriceX18 == null) {
       throw new Error("missing perceived state");
     }
 
@@ -228,8 +315,8 @@ export class NyxAgent {
       referencePriceX18: this.referencePriceX18,
       token0: this.config.wbot,
       token1: this.config.bousdt,
-      token0Decimals: this.dexSnapshot.token0.decimals,
-      token1Decimals: this.dexSnapshot.token1.decimals,
+      token0Decimals: this.marketSnapshot.token0.decimals,
+      token1Decimals: this.marketSnapshot.token1.decimals,
       maxDeviationBps: this.config.maxClearingDeviationBps,
     });
 
@@ -259,22 +346,32 @@ export class NyxAgent {
       );
     } catch (error) {
       const reason = `simulate failed: ${(error as Error).message}`;
+      const key = settlementKey(settlement.matches);
+      const attempt = this.recordSimulationFailure(key, reason);
+
+      if (attempt < SIMULATION_FAILURES_BEFORE_QUARANTINE) {
+        this.state = `retrying: ${reason} (${attempt}/${SIMULATION_FAILURES_BEFORE_QUARANTINE})`;
+        return;
+      }
+
       await Promise.all(
         settlement.matches.map((match) => this.store.mark(match.commitment, "quarantined", reason)),
       );
+      this.simulationFailures.delete(key);
       this.state = "quarantined: simulation failed";
       return;
     }
 
+    this.simulationFailures.clear();
     this.state = "settling";
-    const txHash = await sendSettleWithGasBump(
+    const txHash = await sendSettleWithGasBuffer(
       this.publicClient,
       walletClient,
       simulation.request,
-      2,
     );
     this.lastTx = txHash;
-    await this.publicClient.waitForTransactionReceipt({ hash: txHash });
+    const receipt = await this.publicClient.waitForTransactionReceipt({ hash: txHash });
+    assertSuccessfulReceipt(receipt);
     await Promise.all(settlement.matches.map((match) => this.store.mark(match.commitment, "settled")));
     this.lastClearAt = Math.floor(Date.now() / 1000);
     this.lastReason = decision.reason;
@@ -285,18 +382,19 @@ export class NyxAgent {
     return this.store
       .all()
       .filter((entry) => entry.status === "queued")
+      .filter((entry) => entry.order.expiresAt > BigInt(Math.floor(Date.now() / 1000)))
       .filter((entry) => this.currentBatchId == null || entry.order.batchId === this.currentBatchId);
   }
 
   private notionalWaitingX18(queue: QueuedOrder[]): bigint {
-    if (!this.dexSnapshot || this.referencePriceX18 == null) return 0n;
+    if (!this.marketSnapshot || this.referencePriceX18 == null) return 0n;
     return queue.reduce((sum, entry) => {
       if (sameAddress(entry.order.sellToken, this.config.wbot)) {
-        const sellX18 = toX18(entry.order.sellAmount, this.dexSnapshot!.token0.decimals);
+        const sellX18 = toX18(entry.order.sellAmount, this.marketSnapshot!.token0.decimals);
         return sum + (sellX18 * this.referencePriceX18!) / 1_000000000000000000n;
       }
       if (sameAddress(entry.order.sellToken, this.config.bousdt)) {
-        return sum + toX18(entry.order.sellAmount, this.dexSnapshot!.token1.decimals);
+        return sum + toX18(entry.order.sellAmount, this.marketSnapshot!.token1.decimals);
       }
       return sum;
     }, 0n);
@@ -334,6 +432,12 @@ export class NyxAgent {
         2,
       ),
     );
+  }
+
+  private signerAddress(): `0x${string}` | undefined {
+    const privateKey = readAgentPrivateKey();
+    if (!privateKey) return undefined;
+    return makeWalletClient(this.config, privateKey).account.address;
   }
 }
 

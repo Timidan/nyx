@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { NyxAgent } from "./agent.js";
+import { NyxAgent, SIMULATION_FAILURES_BEFORE_QUARANTINE } from "./agent.js";
 import type { AgentConfig } from "./config.js";
 
 const config: AgentConfig = {
@@ -9,7 +9,6 @@ const config: AgentConfig = {
   auctionAddress: "0x0000000000000000000000000000000000000100",
   wbot: "0x0000000000000000000000000000000000000001",
   bousdt: "0x0000000000000000000000000000000000000002",
-  dexPair: "0x0000000000000000000000000000000000000003",
   fromBlock: 0n,
   pollMs: 5000,
   httpHost: "127.0.0.1",
@@ -68,5 +67,98 @@ describe("NyxAgent status", () => {
       dexSpreadBps: 500,
       maxClearingDeviationBps: 1000,
     });
+  });
+
+  it("never overlaps polling cycles when one cycle is still running", async () => {
+    const agent = new NyxAgent({ ...config, pollMs: 1 });
+    const unsafe = agent as unknown as {
+      runOnce: () => Promise<unknown>;
+    };
+    let scheduled: (() => void) | undefined;
+    const originalSetInterval = globalThis.setInterval;
+    let calls = 0;
+    let active = 0;
+    let maxActive = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    unsafe.runOnce = async () => {
+      calls += 1;
+      if (calls === 1) return null;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await gate;
+      active -= 1;
+      return null;
+    };
+    globalThis.setInterval = (((handler: TimerHandler) => {
+      scheduled = handler as () => void;
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    }) as unknown) as typeof setInterval;
+
+    try {
+      await agent.startLoop();
+      assert.ok(scheduled);
+      scheduled();
+      scheduled();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(maxActive, 1);
+    } finally {
+      release?.();
+      globalThis.setInterval = originalSetInterval;
+    }
+  });
+
+  it("waits without quarantining candidates while the auction is paused", async () => {
+    const agent = new NyxAgent(config);
+    const unsafe = agent as unknown as {
+      auctionPaused: boolean;
+      act: (decision: unknown, queue: unknown[]) => Promise<void>;
+    };
+    unsafe.auctionPaused = true;
+
+    await unsafe.act(
+      {
+        reason: 0,
+        label: "depth",
+        queueDepth: 2,
+        totalNotionalX18: 1n,
+        side0X18: 1n,
+        side1X18: 1n,
+        imbalanceBps: 0,
+        dexSpreadOk: false,
+      },
+      [],
+    );
+
+    assert.equal(agent.getStatus().agentState, "paused: waiting for owner");
+  });
+});
+
+describe("simulation failure handling", () => {
+  it("retries a candidate set before setting it aside", () => {
+    const agent = new NyxAgent(config);
+    const unsafe = agent as unknown as {
+      recordSimulationFailure: (key: string, reason: string) => number;
+    };
+
+    assert.equal(unsafe.recordSimulationFailure("a|b", "oracle deviation"), 1);
+    assert.equal(unsafe.recordSimulationFailure("a|b", "oracle deviation"), 2);
+    assert.equal(unsafe.recordSimulationFailure("a|b", "oracle deviation"), 3);
+    assert.equal(SIMULATION_FAILURES_BEFORE_QUARANTINE, 3);
+  });
+
+  it("restarts the count when the failure changes or the set changes", () => {
+    const agent = new NyxAgent(config);
+    const unsafe = agent as unknown as {
+      recordSimulationFailure: (key: string, reason: string) => number;
+    };
+
+    assert.equal(unsafe.recordSimulationFailure("a|b", "rpc timeout"), 1);
+    assert.equal(unsafe.recordSimulationFailure("a|b", "rpc timeout"), 2);
+    assert.equal(unsafe.recordSimulationFailure("a|b", "oracle deviation"), 1);
+    assert.equal(unsafe.recordSimulationFailure("c|d", "oracle deviation"), 1);
   });
 });

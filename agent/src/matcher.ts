@@ -3,6 +3,9 @@ import type { Address, MatchedOrder, OrderReveal, QueuedOrder } from "./types.js
 
 const X18 = 1_000000000000000000n;
 const EXHAUSTIVE_ORDER_LIMIT = 16;
+/** Mirrors MAX_MATCHED_ORDERS in NyxBatchAuction. A settlement above this
+ *  reverts with TooManyMatchedOrders, so the agent must never propose one. */
+export const MAX_MATCHED_ORDERS = 64;
 
 export interface SettlementParams {
   queue: QueuedOrder[];
@@ -91,6 +94,11 @@ function searchExactMultiPairSettlement(
     const selected: QueuedOrder[] = [];
     const orderedPairs = [...pairs].sort((a, b) => pairKey(a).localeCompare(pairKey(b)));
     for (const [left, right] of orderedPairs) {
+      // Every pair here already scored as exactly conserving on its own, so
+      // stopping early keeps the remaining set balanced and inside the
+      // contract's cap. Continuing past it would only build a settlement that
+      // reverts.
+      if (selected.length + 2 > MAX_MATCHED_ORDERS) break;
       if (used.has(left.commitment) || used.has(right.commitment)) continue;
       used.add(left.commitment);
       used.add(right.commitment);
@@ -118,17 +126,25 @@ function scoreSettlement(
   let buy0 = 0n;
   let buy1 = 0n;
   let totalNotionalX18 = 0n;
+  const token0Traders = new Set<string>();
+  const token1Traders = new Set<string>();
 
   for (const entry of orders) {
     const buyAmount = preview(entry.order, { ...params, clearingPriceX18 });
     if (buyAmount < entry.order.minBuyAmount) return null;
 
     if (sameAddress(entry.order.sellToken, params.token0)) {
+      const trader = entry.order.trader.toLowerCase();
+      if (token1Traders.has(trader)) return null;
+      token0Traders.add(trader);
       sold0 += entry.order.sellAmount;
       buy1 += buyAmount;
       const sellX18 = toX18(entry.order.sellAmount, params.token0Decimals);
       totalNotionalX18 += (sellX18 * clearingPriceX18) / X18;
     } else if (sameAddress(entry.order.sellToken, params.token1)) {
+      const trader = entry.order.trader.toLowerCase();
+      if (token0Traders.has(trader)) return null;
+      token1Traders.add(trader);
       sold1 += entry.order.sellAmount;
       buy0 += buyAmount;
       totalNotionalX18 += toX18(entry.order.sellAmount, params.token1Decimals);

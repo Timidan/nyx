@@ -17,21 +17,25 @@ jobs:
       - name: Format
         run: forge fmt --check
         working-directory: contracts
+      - name: Lint
+        run: forge lint
+        working-directory: contracts
       - name: Test
-        run: forge test
+        run: forge test --force
         working-directory: contracts
 
   agent:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
       - uses: actions/setup-node@v4
         with:
           node-version: "22.13"
           cache: pnpm
           cache-dependency-path: agent/pnpm-lock.yaml
-      - name: Enable pnpm
-        run: corepack enable
       - name: Install
         run: pnpm install --frozen-lockfile
         working-directory: agent
@@ -52,15 +56,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
       - uses: actions/setup-node@v4
         with:
           node-version: "22.13"
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
-      - name: Enable pnpm
-        run: corepack enable
       - name: Install
         run: pnpm install --frozen-lockfile
+        working-directory: web
+      - name: Test
+        run: pnpm test
         working-directory: web
       - name: Build
         run: pnpm build

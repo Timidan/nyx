@@ -2,159 +2,187 @@
 
 <img src="docs/assets/nyx-logo.svg" alt="Nyx" width="380" />
 
-**Sealed-bid batch auctions on BOT Chain, run and settled by an autonomous agent.**
+**Sealed-limit batch auctions on BOT Chain, matched by an autonomous agent.**
 
-[![Chain](https://img.shields.io/badge/BOT_Chain-testnet_968-1418A8)](https://scan.bohr.life/address/0x58126ae8ff411a3B1768b121763a0E999221b6da)
+[![Chain](https://img.shields.io/badge/BOT_Chain-mainnet_677-1418A8)](https://scan.botchain.ai)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.30-363636?logo=solidity)](contracts/)
 [![Foundry](https://img.shields.io/badge/tests-Foundry-orange)](contracts/test/)
 [![TypeScript](https://img.shields.io/badge/agent-TypeScript_%2B_viem-3178C6?logo=typescript&logoColor=white)](agent/)
 [![React](https://img.shields.io/badge/web-React_%2B_Vite-61DAFB?logo=react&logoColor=black)](web/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[Quickstart](#quickstart) · [How it works](#how-it-works) · [On-chain integration](#on-chain-integration) · [Repo map](#repo-map) · [Architecture](docs/ARCHITECTURE.md) · [Deploying](docs/DEPLOY.md) · [Protocol reference](docs/INTERFACES.md)
+[Quickstart](#quickstart) · [How it works](#how-it-works) · [Mainnet posture](#mainnet-posture) · [Architecture](docs/ARCHITECTURE.md) · [Deploy](docs/DEPLOY.md) · [Protocol](docs/INTERFACES.md) · [Readiness](docs/PRODUCTION_READINESS.md)
 
-<img src="docs/assets/nyx-ui.png" alt="Nyx trading interface: agent activity bars, hidden-order desk, decision trace, and settled rounds" width="850" />
+<img src="docs/assets/nyx-ui.png" alt="Nyx sealed-limit trading desk, decision trace, and settlement receipts" width="850" />
 
 </div>
 
 ---
 
-Traders submit **hidden orders**: a keccak commitment plus ERC-20 escrow, so
-order details are invisible to chain observers while a round is open. The Nyx
-agent watches the pool, reads a live reference price from the BOT DEX every
-cycle, and decides *when* and *why* to clear each round. Every settlement is
-an atomic on-chain swap that emits
-`BatchSettled(batchId, matchCount, clearingPriceX18, reason, referencePriceX18, settlementHash)`:
-the agent's decision, on the record.
+Nyx accepts a keccak commitment plus ERC-20 escrow. The trader wallet, side,
+size, round, and expiry are public at submission. The limit price and salt are
+delivered to the matching agent, hidden from public observers while waiting,
+and revealed in settlement calldata if the order clears. Nyx is not a dark
+pool.
 
-Rounds close on conditions, not a timer. The agent fires for one of five
-observable reasons, each computed from live on-chain state:
+Every matched round clears at one price and emits:
 
-| Code | Trigger |
-|---|---|
-| 0 | Enough orders queued (depth threshold) |
-| 1 | Buys and sells match at the BOT DEX midpoint |
-| 2 | Enough value queued (notional threshold) |
-| 3 | Time limit reached (liveness backstop) |
-| 4 | Market moved in traders' favor (DEX spread) |
+```solidity
+BatchSettled(
+    batchId,
+    matchCount,
+    clearingPriceX18,
+    reason,
+    referencePriceX18,
+    settlementHash
+)
+```
 
-The result is a settlement stream with irregular cadence and varied triggers,
-verifiable block by block on the explorer.
+The contract, not the agent, enforces escrow, user limits, exact token
+conservation, committed expiry, cross-side self-trade rejection, and a guarded
+V3 TWAP price band.
 
 ## How it works
 
+```text
+trader wallet ── commitment + escrow + expiry ──▶ NyxBatchAuction
+      │                                                ▲
+      └── reveal preimage ──▶ matching agent ──────────┘ settleBatch
+                                  │                    │
+                                  └── reads auction ───┘ V3 TWAP oracle
+
+quote provider ── sanitized public-flow feed ──▶ own complementary order
 ```
-trader ──seal──▶ NyxBatchAuction (commitment + escrow)
-   │                   ▲                    │
-   │ preimage          │ settleBatch        │ BatchSettled(reason)
-   ▼                   │                    ▼
- Nyx agent ── perceive ─ decide ─ act ─ recover     explorer / web UI
-   │
-   └── reads the BOT DEX pair price every cycle
-```
 
-For detailed system, settlement-sequence, order-lifecycle, and agent-loop
-diagrams, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The agent evaluates five visible trigger families:
 
-- **`contracts/`** — Foundry. `NyxBatchAuction`: commit-reveal order pool,
-  agent reveal, atomic settlement with exact token conservation
-  (`sold0 == bought0 && sold1 == bought1`), per-order `minBuyAmount`
-  enforcement, and cancel-with-refund after a delay so funds can never be
-  stranded.
-- **`agent/`** — TypeScript (Node 22, viem). A long-lived loop: perceive
-  (events + DEX price) → decide (the five reason codes, in priority order) →
-  act (simulate, then settle; gas-bump retry) → recover (rebuilds state from
-  chain events on restart). Settles multiple matched orders per round at a
-  single clearing price when the queue allows. Serves a local HTTP API
-  (`:8787`) that receives order preimages and exposes live status, including
-  a full decision trace.
-- **`web/`** — Vite + React. Place hidden orders with any injected wallet
-  (EIP-6963 multi-wallet discovery), watch rounds settle in real time, track
-  and cancel your own orders, and verify everything through explorer links.
-  Falls back to a simulator when no contract address is configured.
+| Code | Trigger |
+|---|---|
+| 0 | Queue depth |
+| 1 | Side balance |
+| 2 | Queued notional |
+| 3 | Liveness interval |
+| 4 | Favorable spread |
 
-## On-chain integration
+A trigger only decides when to try. Settlement still requires a complementary,
+exact-conserving set inside every user and oracle bound.
 
-- The auction trades **WBOT/BOUSDT**, the chain's native wrapped token and
-  stable pair, not synthetic demo tokens.
-- The reference price is read from the live BOT DEX pair
-  ([`0x4C7a…a5e0`](https://scan.bohr.life/address/0x4C7a5bE488491A76b2839AcCFc13d8Dd5276a5e0))
-  every agent cycle; it feeds reason codes 1 and 4 and is echoed in every
-  `BatchSettled` event as `referencePriceX18`.
-- Every settlement is a transaction signed by the agent wallet, gated by
-  `onlyAgent` on the contract.
+### Contracts
 
-### Deployed (BOT Chain testnet, chain 968)
+- `BotV3TwapOracle` normalizes USDT per WBOT to X18 and rejects low current or
+  15-minute harmonic liquidity, unavailable observations, and excessive
+  spot/TWAP divergence.
+- `NyxBatchAuction` starts paused and allowlisted, requires token-specific
+  per-order/per-batch/global caps, escrows exact amounts, limits settlements to
+  64 orders, and leaves cancellation/claims open during pause.
+- Orders refund when their committed expiry arrives, their round becomes stale,
+  or the fallback cancel delay elapses.
 
-The current deployment includes the immutable clearing-price deviation guard
-and two-step agent rotation.
+### Agent
+
+- Validates chain ID, deployment block, exact runtime code hash, tokens, oracle,
+  pool, settlement authority, and signer before operating.
+- Recovers chain state and the actual last-settlement timestamp after restart.
+- Runs non-overlapping perceive/decide/act cycles, discards expired flow,
+  simulates once, sends once with a gas-limit buffer, and requires a successful
+  receipt.
+- Exposes public order intake/status plus a separate provider-authenticated
+  sanitized quote-request feed.
+
+### Web
+
+- Reads pause, allowlist, caps, tokens, and expiry rules from the deployment.
+- Blocks approval when the canary cannot accept the wallet/order.
+- Keeps an undelivered reveal only until expiry, scopes local records by chain,
+  deployment, and wallet, and exposes stale/expired refunds.
+- Renders copyable settlement receipts with clearing price, TWAP, received
+  amount, settlement proof, and favorable improvement versus the user's limit.
+- Includes configurable canary-access and quote-provider application funnels.
+
+## Mainnet posture
+
+Current source is prepared for a **paused deployment followed by a tiny,
+allowlisted canary**. It is not a claim that unrestricted mainnet is ready.
+
+The candidate mainnet V3 pool was read directly on chain 677 on 2026-08-08:
 
 | Item | Value |
 |---|---|
-| `NyxBatchAuction` | [`0x58126ae8ff411a3B1768b121763a0E999221b6da`](https://scan.bohr.life/address/0x58126ae8ff411a3B1768b121763a0E999221b6da) |
-| Agent wallet | [`0xF62b9CEc835D125771898C73aeF05357855Cdc19`](https://scan.bohr.life/address/0xF62b9CEc835D125771898C73aeF05357855Cdc19) |
-| Deploy tx | [`0xe8e0338f…9d40f`](https://scan.bohr.life/tx/0xe8e0338f6dfa524599b8c147d5f3fa94613e8896347480ae15f014a00059d40f) |
-| Settlement proof | [`0xaab7dd6a…9b94`](https://scan.bohr.life/tx/0xaab7dd6ab9039d041ef98bc8358709ddf706e54878158cae418e6fc0d5a39b94) |
+| USDT | `0xaBabc7Ddc03e501d190C676BF3d92ef0e6e87a3C` (6 decimals) |
+| WBOT | `0xD5452816194a3784dBa983426cCe7c122F4abd30` (18 decimals) |
+| V3 pool | `0x64F418471a1A7932a190E10da5A8551dB5AbeC05` |
+| Fee / observations | 0.30% / 1,024 |
 
-An earlier instance (`0x4aD7971C…4777`, before the deviation guard and two-step
-rotation) settled the first live rounds; see git history.
+The 900-second observation and current oracle adapter pass an opt-in mainnet
+fork smoke test. Re-verify liquidity and all addresses immediately before
+deployment; these are time-sensitive market facts.
+
+The deploy script creates the oracle and auction, configures tiny caps and
+founding wallets, starts ownership handoff, checks the oracle, and deliberately
+leaves the auction paused. Follow [the runbook](docs/DEPLOY.md); do not treat a
+broadcast transaction as permission to accept public escrow.
 
 ## Quickstart
 
-Prerequisites: [Foundry](https://getfoundry.sh), Node ≥ 22.13, pnpm.
+Prerequisites: Foundry, Node 22+, and pnpm.
 
 ```bash
-# 1. contracts — run the test suite
-cd contracts && forge test
+cd contracts
+forge fmt --check
+forge lint
+forge test --force
 
-# 2. agent — typecheck, unit tests, and a read-only dry run against the live
-#    chain (prints the perceive/decide cycle; needs no private key)
-cd agent
-pnpm install
+cd ../agent
+pnpm install --frozen-lockfile
 pnpm test
-pnpm dry-run
+pnpm build
 
-# 3. web — simulated data out of the box; set VITE_AUCTION_ADDRESS in
-#    web/.env.local to point at a live deployment
-cd web
-pnpm install
-pnpm dev        # http://localhost:5190
+cd ../web
+pnpm install --frozen-lockfile
+pnpm test
+pnpm build
+pnpm dev
 ```
 
-Environment variables are documented in [.env.example](.env.example). Private
-keys are never stored in files; export them in the shell that runs a
-deployment or the agent (see [docs/DEPLOY.md](docs/DEPLOY.md)).
+Web development defaults to simulated data when no auction address is set.
+Production must set `VITE_REQUIRE_LIVE=true` so missing or invalid deployment
+configuration fails closed.
 
-To deploy your own instance end to end (deploy → authorize agent → first
-settlement), follow [docs/DEPLOY.md](docs/DEPLOY.md). To drive a scripted
-demo round against a running deployment: `scripts/demo-round.sh`.
+Configuration templates:
+
+- [`.env.example`](.env.example): local/testnet development.
+- [`.env.mainnet.example`](.env.mainnet.example): chain-677 capped canary.
+
+Private keys never belong in either file. Export them only in the process shell
+that needs to sign.
 
 ## Repo map
 
-| Path | What lives there |
+| Path | Contents |
 |---|---|
-| `contracts/` | Foundry project: `NyxBatchAuction`, interface, deploy script, tests |
-| `agent/` | The autonomous agent: policy, matcher, chain IO, HTTP API, tests |
-| `web/` | React UI: order desk, agent monitor, activity feed |
-| `shared/abi/` | Canonical contract ABI consumed by the frontend |
-| `scripts/` | `demo-round.sh`: submit a matched order set and watch it settle |
+| `contracts/` | Auction, V3 oracle, deploy script, unit/invariant/fork tests |
+| `agent/` | Matcher, policy, chain IO, startup attestation, HTTP API, store |
+| `web/` | Trading desk, canary state, refunds, claims, receipts, liquidity funnel |
+| `scripts/` | Two-wallet controlled canary drivers |
+| `docs/` | Architecture, protocol/API, deployment, and readiness gates |
 
-## Security model and limitations
+## Security model
 
-- Current source enforces an immutable max clearing-price deviation against
-  the BOT DEX reference price at settlement time, and agent rotation is a
-  two-step `setAgent` / `acceptAgent` handoff.
-- **The agent sees order preimages before clearing.** Orders are sealed from
-  public observers, not from the operator. A ZK settlement layer is the
-  natural next step; the event and commitment model was designed so one can
-  slot in without changing the order flow.
-- **Single-agent settlement is centralized** in the current deployment.
-  `cancelOrder` guarantees traders can always exit escrow after the cancel
-  delay, whether or not the agent cooperates.
-- Orders are scoped to the round they were submitted in; unmatched orders
-  from a closed round are refundable, not carried over.
-- Testnet DEX liquidity is small, so reference prices move visibly with
-  modest swaps.
+- The agent sees full reveals and can censor settlement until users refund. It
+  cannot bypass limits, escrow conservation, expiry, oracle bounds, or user
+  cancellation.
+- The owner controls pause, caps, allowlisting, and agent nomination. Owner and
+  agent handoffs are two-step, but a compromised owner remains serious; use
+  separate controlled custody and event monitoring.
+- V3 observation or liquidity failure stops settlement, not refunds/claims.
+- Failed outbound settlement transfers become pull-based claimable balances;
+  failed user-requested refunds revert only that cancellation attempt.
+- Larger caps, allowlist removal, and promoted user acquisition require
+  independent review, hosted monitoring evidence, and demonstrated quote depth.
+
+Historical chain-968 deployments remain explorer demos and predate current
+oracle, expiry, canary, accounting, and settlement controls. Do not use their
+addresses as evidence for current-source mainnet readiness.
 
 ## License
 

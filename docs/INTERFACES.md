@@ -1,174 +1,261 @@
-# Nyx — Protocol & API reference
+# Nyx Protocol and API Reference
 
-The stable contract between the three components: the Solidity interface the
-contract implements, the reason-code table, and the agent's local HTTP API the
-frontend consumes. Changes land here first, then in code.
+The Solidity interface is canonical in
+[`contracts/src/interfaces/INyxBatchAuction.sol`](../contracts/src/interfaces/INyxBatchAuction.sol).
+This document records the cross-component contract used by the agent and web.
 
-## Design notes
+## Product truth
 
-Nyx is a sealed-bid commit-reveal batch auction driven by an autonomous agent.
-Orders are **sealed from public chain observers until settlement**; the agent
-sees preimages in order to match, single-agent settlement is centralized in
-the current deployment, and `cancelOrder` guarantees an exit from escrow after
-the cancel delay. A ZK settlement layer can replace the reveal step without
-changing the order flow; the commitment and event model was shaped for that.
+Nyx is a sealed-limit batch auction, not a dark pool. `OrderSubmitted` publishes
+the trader, batch, sell token, sell amount, expiry, and commitment. The limit
+(`minBuyAmount`) and salt are sent to the matching agent off-chain and become
+public if included in settlement calldata.
 
-## Chain facts (verified on-chain)
+The agent is the sole settlement authority in the current design. It cannot
+violate a committed limit, mint a counterparty, exceed escrow, clear outside
+the oracle band, settle an expired order, or use one wallet on both sides.
+
+## Mainnet market facts
+
+Read directly from BOT Chain on 2026-08-08:
 
 | Item | Value |
 |---|---|
-| RPC | https://rpc.bohr.life (chainId 968 / 0x3c8) |
-| Explorer | https://scan.bohr.life (Blockscout) |
-| Faucet | https://faucet.bohr.life (browser only, no public API) |
-| BOT DEX V2 pair (BOUSDT/WBOT) | `0x4C7a5bE488491A76b2839AcCFc13d8Dd5276a5e0` — live reserves, actively traded |
-| BOUSDT (token0) | `0xAfea2A5e0587615ceD6972e271E5bfe8622ebcA2` |
-| WBOT (token1) | `0xD5452816194a3784dBa983426cCe7c122F4abd30` |
-| SwapRouter | `0x07032d47A1b9f8460cBeE9dC17c1d3E438693929` |
-| Second pair (same tokens) | `0xC5EAf0a5b0E6af9572a7B673f1d59659A69Cb896` |
+| Chain | BOT Chain mainnet, `677` |
+| RPC | `https://rpc.botchain.ai` |
+| Explorer | `https://scan.botchain.ai` |
+| WBOT | `0xD5452816194a3784dBa983426cCe7c122F4abd30`, 18 decimals |
+| USDT | `0xaBabc7Ddc03e501d190C676BF3d92ef0e6e87a3C`, 6 decimals |
+| V3 pool | `0x64F418471a1A7932a190E10da5A8551dB5AbeC05` |
+| Pool orientation | token0 USDT, token1 WBOT |
+| Fee / spacing | 3,000 / 60 |
+| Observation cardinality | 1,024 |
 
-Token orientation: `NyxBatchAuction.token0 = WBOT` (18 decimals), `token1 =
-BOUSDT` (6 decimals); `referencePair` is the live BOUSDT/WBOT pair above and
-`clearingPriceX18` means normalized BOUSDT per WBOT. Note the DEX pair's own
-token order is reversed (BOUSDT is its token0); the contract normalizes.
+The auction orientation is `token0 = WBOT`, `token1 = USDT`; prices are USDT
+per WBOT scaled by `1e18`. Re-verify all market facts before deployment.
 
-Ecosystem quirks worth knowing: WBOT is WETH9-style (`deposit()` /
-`withdraw(uint256)`; the router's `WETH9()` returns it). The published
-`SwapRouter` is a Uniswap **V3** SwapRouter, not V2 (`getAmountsOut` reverts);
-V3 WBOT/BOUSDT pools exist at fee tiers 500/3000/10000 but carry little
-liquidity, so small-amount token prep is better served by a direct V2-style
-swap against the pair. `BOUSDT.mint` is role-restricted.
-
-## Contracts
-
-### INyxBatchAuction (core)
+## Order structures
 
 ```solidity
-interface INyxBatchAuction {
-    struct OrderReveal {
-        address trader;
-        uint64 batchId;
-        address sellToken;
-        uint256 sellAmount;
-        uint256 minBuyAmount;
-        bytes32 salt;
-    }
+struct OrderReveal {
+    address trader;
+    uint64 batchId;
+    address sellToken;
+    uint256 sellAmount;
+    uint256 minBuyAmount;
+    uint64 expiresAt;
+    bytes32 salt;
+}
 
-    struct MatchedOrder {
-        bytes32 commitment;
-        OrderReveal order;
-    }
-
-    event OrderSubmitted(uint64 indexed batchId, bytes32 indexed commitment, address indexed trader, address sellToken, uint256 sellAmount);
-    event OrderSettled(uint64 indexed batchId, bytes32 indexed commitment, address indexed trader, address sellToken, uint256 sellAmount, uint256 buyAmount);
-    event OrderCancelled(uint64 indexed batchId, bytes32 indexed commitment, address indexed trader, address sellToken, uint256 refunded);
-    event BatchSettled(uint64 indexed batchId, uint256 matchCount, uint256 clearingPriceX18, uint8 indexed reason, uint256 referencePriceX18, bytes32 settlementHash);
-    event BatchOpened(uint64 indexed batchId, uint64 openedAt);
-    event AgentUpdateStarted(address indexed oldAgent, address indexed pendingAgent);
-    event AgentUpdated(address indexed oldAgent, address indexed newAgent);
-
-    function token0() external view returns (address);
-    function token1() external view returns (address);
-    function referencePair() external view returns (address);
-    function agent() external view returns (address);
-    function pendingAgent() external view returns (address);
-    function owner() external view returns (address);
-    function currentBatchId() external view returns (uint64);
-    function cancelDelaySeconds() external view returns (uint256);
-    function maxReferenceDeviationBps() external view returns (uint256);
-
-    function submitOrder(uint64 batchId, bytes32 commitment, address sellToken, uint256 sellAmount) external;
-    function settleBatch(uint64 batchId, uint256 clearingPriceX18, uint8 reason, MatchedOrder[] calldata orders) external returns (uint256 matchCount, bytes32 settlementHash);
-    function cancelOrder(bytes32 commitment) external;
-
-    function hashOrder(OrderReveal calldata order) external view returns (bytes32);
-    function getReferencePriceX18() external view returns (uint256 priceX18);
-    function previewBuyAmount(address sellToken, uint256 sellAmount, uint256 clearingPriceX18) external view returns (uint256 buyAmount);
-    function getOrder(bytes32 commitment) external view returns (address trader, uint64 batchId, address sellToken, uint256 sellAmount, uint64 submittedAt, uint8 status);
-    function setAgent(address newAgent) external;
-    function acceptAgent() external;
+struct MatchedOrder {
+    bytes32 commitment;
+    OrderReveal order;
 }
 ```
 
-Production hardening in the current source requires `clearingPriceX18` to stay
-inside `maxReferenceDeviationBps` of `getReferencePriceX18()` at settlement
-time. `setAgent` starts a handoff by setting `pendingAgent`; the pending agent
-must call `acceptAgent` before it can settle batches.
+The commitment is contract- and chain-bound:
 
-## Reason codes
-
-| Code | Meaning | UI copy |
-|---|---|---|
-| 0 | depth-threshold | "enough orders queued" |
-| 1 | imbalance | "buys and sells matched at market price" |
-| 2 | notional-wait | "enough value queued" |
-| 3 | max-interval | "time limit reached" |
-| 4 | dex-spread-trigger | "market moved in traders' favor" |
-
-## Agent local API (frontend ↔ agent)
-
-CORS enabled for the frontend dev origin (http://localhost:5190 by default) and
-configurable via env. Public deployments should bind the agent behind TLS and
-enable `AGENT_REQUIRE_API_BEARER_TOKEN=true`, or enforce equivalent gateway
-authentication before forwarding `POST /orders`.
-
-```
-POST /orders   — body: OrderReveal JSON (preimage), sent after the frontend
-                 submits the commitment on-chain
-GET  /status   — { currentBatchId, reasonCandidate, queueDepth, lastTx,
-                 referencePriceX18, secondsSinceLastClear, agentState,
-                 lastReason, depth, depthMin, notionalWaiting, notionalMax,
-                 notionalUnit }
-GET  /health   — process + RPC health
+```solidity
+keccak256(
+    abi.encode(
+        address(auction),
+        block.chainid,
+        trader,
+        batchId,
+        sellToken,
+        sellAmount,
+        minBuyAmount,
+        expiresAt,
+        salt
+    )
+)
 ```
 
-`/status` fields:
+Clients should call `hashOrder` on the deployed contract rather than maintain a
+second encoder.
 
-| Field | Type | Meaning |
-|---|---|---|
-| `currentBatchId` | `string \| null` | Current on-chain batch id as a decimal string, or `null` before the agent has a batch source. |
-| `reasonCandidate` | `{ code: number, label: string } \| null` | Current local settlement trigger candidate from policy evaluation. |
-| `queueDepth` | `number` | Current matched-queue depth. Kept for existing frontend consumers. |
-| `lastTx` | `string \| null` | Last settlement transaction hash sent by this agent process. |
-| `referencePriceX18` | `string \| null` | Current BOUSDT per WBOT reference price in X18. |
-| `secondsSinceLastClear` | `number` | Seconds since the agent last confirmed a settlement it sent. |
-| `agentState` | `string` | Current local agent state label. |
-| `lastReason` | `number \| null` | Reason code from the most recent `BatchSettled` event the agent knows about, or `null` before any known settlement. |
-| `depth` | `number` | Alias for the current matched-queue depth. |
-| `depthMin` | `number` | Configured `DEPTH_MIN` threshold. |
-| `notionalWaiting` | `string` | Current queued escrow notional as a decimal integer in `notionalUnit`. |
-| `notionalMax` | `string` | Configured notional threshold as a decimal integer in `notionalUnit`. |
-| `notionalUnit` | `string` | `token1X18`: token1-normalized X18 units. In the primary deployment, token1 is BOUSDT. |
+## Core reads
 
-Decision-trace fields (v3, additive):
+```solidity
+token0() -> address
+token1() -> address
+referenceOracle() -> address
+referencePair() -> address // deprecated compatibility alias for the oracle
+agent() -> address
+pendingAgent() -> address
+owner() -> address
+pendingOwner() -> address
+currentBatchId() -> uint64
+cancelDelaySeconds() -> uint256
+maxReferenceDeviationBps() -> uint256
+paused() -> bool
+allowlistEnabled() -> bool
+allowedTraders(address) -> bool
+riskLimits(address) -> (uint256 perOrder, uint256 perBatch, uint256 global)
+totalEscrowed(address) -> uint256
+batchEscrowed(uint64,address) -> uint256
+claimableBalances(address token,address trader) -> uint256
+getReferencePriceX18() -> uint256
+previewBuyAmount(address,uint256,uint256) -> uint256
+getOrder(bytes32) -> (
+    address trader,
+    uint64 batchId,
+    address sellToken,
+    uint256 sellAmount,
+    uint64 submittedAt,
+    uint64 expiresAt,
+    uint8 status
+)
+```
 
-| Field | Type | Meaning |
-|---|---|---|
-| `decision.side0X18` | `string` | Queued sell-side notional for token0 (WBOT), token1X18 units. |
-| `decision.side1X18` | `string` | Queued sell-side notional for token1 (BOUSDT), token1X18 units. |
-| `decision.imbalanceBps` | `number \| null` | Current side imbalance in bps (null when either side is empty). |
-| `decision.dexSpreadOk` | `boolean` | Whether any queued order clears favorably vs the DEX reference at the configured spread. |
-| `config.imbalanceBps` | `number` | Imbalance trigger threshold (bps). |
-| `config.maxIntervalSeconds` | `number` | Liveness backstop interval. |
-| `config.dexSpreadBps` | `number` | Favorable-spread trigger threshold (bps). |
-| `config.maxClearingDeviationBps` | `number` | Max clearing-price deviation vs reference (bps). |
+Order statuses are `0 NONE`, `1 SUBMITTED`, `2 SETTLED`, `3 CANCELLED`.
 
-All optional for consumers; older agents may omit them.
+## State changes
 
-## Deployment artifacts (BOT Chain testnet)
+```solidity
+submitOrder(
+    uint64 batchId,
+    bytes32 commitment,
+    address sellToken,
+    uint256 sellAmount,
+    uint64 expiresAt
+)
 
-> This live demo instance was deployed **before** the immutable clearing-price
-> deviation guard and the two-step `setAgent` / `acceptAgent` rotation were
-> added to the contract. Its behaviour predates those checks; the interface
-> above reflects current source. Fresh deployments include both — see
-> [DEPLOY.md](DEPLOY.md).
+settleBatch(
+    uint64 batchId,
+    uint256 clearingPriceX18,
+    uint8 reason,
+    MatchedOrder[] orders
+) -> (uint256 matchCount, bytes32 settlementHash)
 
-| Item | Value |
+cancelOrder(bytes32 commitment)
+claimPayout(address token)
+
+setAgent(address) / acceptAgent()
+transferOwnership(address) / acceptOwnership()
+setRiskLimits(address,uint256,uint256,uint256)
+setAllowedTrader(address,bool)
+setAllowlistEnabled(bool)
+pause() / unpause()
+```
+
+`submitOrder` requires a future expiry no later than the fallback cancel delay,
+an allowed trader when allowlisting is enabled, and all three token caps. Exact
+token receipt is measured around `transferFrom`.
+
+`settleBatch` requires the current batch, 1-64 matched orders, a valid reason,
+unexpired and unique commitments, no trader on opposite sides, exact token
+conservation, all user limits, and clearing price inside the oracle band.
+
+`cancelOrder` is available when any condition is true: the order expired, its
+batch is stale, or `submittedAt + cancelDelaySeconds` elapsed. Pause does not
+disable cancellation or payout claims.
+
+## Events
+
+```solidity
+OrderSubmitted(batchId, commitment, trader, sellToken, sellAmount, expiresAt)
+OrderSettled(batchId, commitment, trader, sellToken, sellAmount, buyAmount)
+OrderCancelled(batchId, commitment, trader, sellToken, refunded)
+BatchSettled(
+    batchId,
+    matchCount,
+    clearingPriceX18,
+    reason,
+    referencePriceX18,
+    settlementHash
+)
+BatchOpened(batchId, openedAt)
+PayoutDeferred(token, trader, amount)
+PayoutClaimed(token, trader, amount)
+AgentUpdateStarted(oldAgent, pendingAgent)
+AgentUpdated(oldAgent, newAgent)
+OwnershipTransferStarted(oldOwner, pendingOwner)
+OwnershipTransferred(oldOwner, newOwner)
+RiskLimitsUpdated(token, perOrder, perBatch, global)
+TraderAllowlistUpdated(trader, allowed)
+AllowlistModeUpdated(enabled)
+PauseStateUpdated(paused)
+```
+
+Settlement reason codes:
+
+| Code | Agent trigger |
 |---|---|
-| NyxBatchAuction | `0x58126ae8ff411a3B1768b121763a0E999221b6da` |
-| Deploy tx | `0xe8e0338f6dfa524599b8c147d5f3fa94613e8896347480ae15f014a00059d40f` |
-| Deployer | `0xF62b9CEc835D125771898C73aeF05357855Cdc19` |
-| Agent wallet | `0xF62b9CEc835D125771898C73aeF05357855Cdc19` |
-| Milestone settlement tx | `0xaab7dd6ab9039d041ef98bc8358709ddf706e54878158cae418e6fc0d5a39b94` (batch 1, fresh deployment proof, signed by the VPS-held agent wallet) |
+| 0 | Queue depth threshold |
+| 1 | Side balance condition |
+| 2 | Queued notional threshold |
+| 3 | Liveness interval |
+| 4 | Favorable spread condition |
 
-ABIs: after `forge build`, canonical ABIs are copied to `shared/abi/*.json`
-for the frontend.
+The reason is descriptive agent policy, not permission to bypass settlement
+invariants.
+
+## Oracle interface
+
+```solidity
+interface INyxPriceOracle {
+    function baseToken() external view returns (address);
+    function quoteToken() external view returns (address);
+    function priceX18() external view returns (uint256);
+}
+```
+
+`BotV3TwapOracle` additionally exposes `pool`, `twapWindow`, `minLiquidity`, and
+`maxSpotTwapDeviationBps`. `priceX18` fails closed when current or harmonic-mean
+liquidity is below the floor, observations are unavailable, spot/TWAP deviation
+is too high, or normalized price is zero.
+
+## Agent HTTP API
+
+### `POST /orders`
+
+Sent only after the commitment transaction confirms:
+
+```json
+{
+  "trader": "0x...",
+  "batchId": "1",
+  "sellToken": "0x...",
+  "sellAmount": "10000000000000000",
+  "minBuyAmount": "100000",
+  "expiresAt": "2000000000",
+  "salt": "0x...32-bytes..."
+}
+```
+
+The agent hashes the reveal through the auction, reads `getOrder`, and rejects
+any mismatch, non-submitted status, wrong batch, or expiry. JSON integer fields
+are decimal strings.
+
+### `GET /health`
+
+Re-runs deployment identity checks and reports process/RPC health,
+`deploymentVerified`, pause state, and authority. Treat `ok: false` as
+fail-closed.
+
+### `GET /status`
+
+Returns current batch, queue depth, reference price, last settlement tx/reason,
+time since last clear, decision trace, thresholds, and local agent state.
+
+### `GET /quote-requests`
+
+Disabled with `404` unless `QUOTE_PROVIDER_BEARER_TOKEN` is configured. With a
+valid server-to-server bearer token it returns queued public-flow projections:
+
+```json
+[
+  {
+    "commitment": "0x...",
+    "batchId": "1",
+    "sellToken": "0x...",
+    "sellAmount": "10000000000000000",
+    "expiresAt": "2000000000"
+  }
+]
+```
+
+The provider feed deliberately excludes trader, `minBuyAmount`, and salt. A
+provider submits its own independent complementary order; the endpoint does not
+delegate custody, execute a hedge, or guarantee a fill.

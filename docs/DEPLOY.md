@@ -1,254 +1,246 @@
-# Nyx Deploy Runbook
+# Nyx Mainnet Canary Runbook
 
-All commands assume the repo root is the current directory and that private keys
-are exported in the shell, not stored in files.
+This runbook deploys the V3 TWAP oracle and `NyxBatchAuction` to BOT Chain
+mainnet (chain 677). It intentionally ends with the auction **paused**. A
+deployment transaction is not authorization to accept public escrow.
 
-> The current live instance
-> [`0x58126a…b6da`](https://scan.bohr.life/address/0x58126ae8ff411a3B1768b121763a0E999221b6da)
-> was deployed from current source and includes the immutable clearing-price
-> deviation guard and two-step agent rotation. Earlier instances are historical;
-> because `maxReferenceDeviationBps` and `cancelDelaySeconds` are
-> constructor-immutable, upgrading means redeploying with this runbook, not
-> retrofitting.
+Private keys stay in the invoking shell. Do not put them in `.env`, process
+manager files, CI logs, or this repository.
 
-## 1. Deploy NyxBatchAuction
+## 1. Prepare and verify the inputs
 
 ```bash
+cp .env.mainnet.example .env.mainnet
+# Fill OWNER_ADDRESS, AGENT_ADDRESS, INITIAL_ALLOWED_TRADER,
+# INITIAL_QUOTE_PROVIDER, and the later deployment-output fields.
+
 set -a
-source .env
+source .env.mainnet
 set +a
+
+# Read-only. Re-reads every chain fact below and exits non-zero on any
+# mismatch. Never broadcasts, never touches a key.
+scripts/preflight-mainnet.sh .env.mainnet
+```
+
+Run the same script again after deployment and once more immediately before
+unpause. It picks up the deployment checks as soon as `NYX_BATCH_AUCTION` is
+filled in. A passing snapshot is evidence about the block it ran on, not about
+the block the canary opens on.
+
+Expected chain and pool identity, verified on 2026-08-08 and re-verified on
+2026-08-22 at block 20,562,350:
+
+| Item | Value |
+|---|---|
+| Chain ID | `677` |
+| Pool | `0x64F418471a1A7932a190E10da5A8551dB5AbeC05` |
+| Pool token0 | USDT `0xaBabc7Ddc03e501d190C676BF3d92ef0e6e87a3C` (6 decimals) |
+| Pool token1 | WBOT `0xD5452816194a3784dBa983426cCe7c122F4abd30` (18 decimals) |
+| Fee / spacing | 3,000 / 60 |
+| Factory | `0x1C51c173323ec11BB4e3C4fD2314c225Dc4b5419` (published in the BOT Chain integration guide) |
+| Observation cardinality | 1,024 |
+| Active liquidity | `2.19e19`, 2.43x the configured `9e18` floor |
+| Spot vs 900s TWAP | 1.0 bps |
+| Price cross-check | 9.7268 USDT/WBOT from the pool; 9.7254 from the BOT Chain DEX feed; 9.73 on Coinstore |
+| Canary inventory router | `0x07032d47A1b9f8460cBeE9dC17c1d3E438693929` (expected WBOT/factory; factory resolves the pool above) |
+
+Two shallower WBOT/USDT tiers exist on the same factory: fee 500 at
+`0x050a7C2EC050A1D1402053A40a2Eb0F6275ed70a` and fee 10000 at
+`0x5CF483E886A83dE87BD31ACb24d3f346454e49EB`. Both hold the same token pair, so
+a pair check alone accepts either. `BOT_V3_FACTORY` is what separates them: the
+oracle constructor asks the factory to confirm the address it was handed is the
+pool that factory deployed for the pair and fee tier, and reverts with
+`PoolNotCanonical` otherwise.
+
+Do not continue if the chain, token orientation, observation call, or current
+liquidity no longer matches the intended market. Recalibrate
+`MIN_V3_LIQUIDITY`; documentation values are a snapshot, not an invariant.
+
+Run all local tests plus the opt-in live-pool smoke test:
+
+```bash
+cd contracts
+forge fmt --check
+forge lint
+forge test --force
+MAINNET_RPC_URL="$RPC_URL" forge test --force \
+  --match-path test/BotV3TwapOracle.mainnet.t.sol -vv
+cd ..
+```
+
+## 2. Simulate, then broadcast
+
+`Deploy.s.sol` requires explicit raw-unit caps. It deploys the oracle, deploys
+the auction, installs both token cap sets, optionally allowlists the founding
+trader and quote-provider wallets, and starts a two-step ownership handoff. It
+does **not** call `unpause()`.
+
+```bash
 export DEPLOYER_PRIVATE_KEY=0x...
-export MAX_CLEARING_DEVIATION_BPS=1000   # optional; constructor default is 1000
 
 cd contracts
-forge test
+forge script script/Deploy.s.sol:Deploy \
+  --rpc-url "$RPC_URL" \
+  --chain-id "$CHAIN_ID"
+
+# Review every simulated address, constructor argument, cap, and owner action.
 forge script script/Deploy.s.sol:Deploy \
   --rpc-url "$RPC_URL" \
   --chain-id "$CHAIN_ID" \
   --broadcast
-```
-
-`Deploy.s.sol` reads `WBOT`, `BOUSDT`, and `BOT_DEX_PAIR` from `.env` (as
-`token0`, `token1`, and `referencePair`), reads `AGENT_ADDRESS` and
-`MAX_CLEARING_DEVIATION_BPS`, hardcodes a **2-day** cancel delay, and sets
-`AGENT_ADDRESS` as the contract's initial `agent`. `maxReferenceDeviationBps`
-and `cancelDelaySeconds` are
-immutable — choose them at deploy time.
-
-Copy the deployed `NyxBatchAuction` address from the forge output:
-
-```bash
 cd ..
-export NYX_BATCH_AUCTION=0x...
 ```
 
-## 2. Rotate Settlement Authority To The Agent Wallet (two-step)
-
-The constructor made the **deployer** the initial `agent`. The documented setup
-runs the agent process from a separate wallet (`AGENT_ADDRESS` /
-`AGENT_PRIVATE_KEY`), so a fresh deployment must hand settlement authority over
-with the two-step rotation **before the agent process can settle**. The
-**owner (== deployer)** signs `setAgent`; the **incoming agent wallet** signs
-`acceptAgent`. Authority only moves once the pending agent accepts.
+Record the oracle address, auction address, deployment transaction, and block
+from the broadcast output. Put only public values in `.env.mainnet`:
 
 ```bash
-# derive the agent address from its key if it is not already exported
-export AGENT_ADDRESS="${AGENT_ADDRESS:-$(cast wallet address --private-key "$AGENT_PRIVATE_KEY")}"
-
-# step 1 — owner (== deployer) nominates the agent wallet
-cast send "$NYX_BATCH_AUCTION" \
-  "setAgent(address)" "$AGENT_ADDRESS" \
-  --rpc-url "$RPC_URL" \
-  --private-key "$DEPLOYER_PRIVATE_KEY"
-
-# step 2 — the agent wallet accepts; settlement authority moves only now
-cast send "$NYX_BATCH_AUCTION" \
-  "acceptAgent()" \
-  --rpc-url "$RPC_URL" \
-  --private-key "$AGENT_PRIVATE_KEY"
+REFERENCE_ORACLE=0x...
+NYX_BATCH_AUCTION=0x...
+START_BLOCK=123456
 ```
 
-If you intend the deployer key to also be the agent, skip this step — the
-deployer is already the agent. The same two commands perform any later rotation
-(owner nominates, new agent accepts).
-
-Confirm — after rotation `agent()` is the agent wallet and `pendingAgent()` is
-the zero address:
+## 3. Verify the deployed state before any opening transaction
 
 ```bash
+cast call "$NYX_BATCH_AUCTION" "paused()(bool)" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" "allowlistEnabled()(bool)" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" "token0()(address)" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" "token1()(address)" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" "referenceOracle()(address)" --rpc-url "$RPC_URL"
 cast call "$NYX_BATCH_AUCTION" "agent()(address)" --rpc-url "$RPC_URL"
-cast call "$NYX_BATCH_AUCTION" "pendingAgent()(address)" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" "owner()(address)" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" "pendingOwner()(address)" --rpc-url "$RPC_URL"
 cast call "$NYX_BATCH_AUCTION" "getReferencePriceX18()(uint256)" --rpc-url "$RPC_URL"
-cast call "$NYX_BATCH_AUCTION" "maxReferenceDeviationBps()(uint256)" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" \
+  "riskLimits(address)(uint256,uint256,uint256)" "$WBOT" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" \
+  "riskLimits(address)(uint256,uint256,uint256)" "$BOUSDT" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" \
+  "allowedTraders(address)(bool)" "$INITIAL_ALLOWED_TRADER" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" \
+  "allowedTraders(address)(bool)" "$INITIAL_QUOTE_PROVIDER" --rpc-url "$RPC_URL"
 ```
 
-## 3. Start The Agent
+The first two results must be `true`. Verify the runtime bytecode and pin its
+hash for agent startup:
 
-Terminal A:
+```bash
+AUCTION_RUNTIME_CODE_HASH=$(cast keccak "$(cast code "$NYX_BATCH_AUCTION" --rpc-url "$RPC_URL")")
+echo "$AUCTION_RUNTIME_CODE_HASH"
+```
+
+If `OWNER_ADDRESS` differs from the deployer, accept from the intended owner
+only after the checks above:
+
+```bash
+export OWNER_PRIVATE_KEY=0x...
+cast send "$NYX_BATCH_AUCTION" "acceptOwnership()" \
+  --rpc-url "$RPC_URL" --private-key "$OWNER_PRIVATE_KEY"
+```
+
+Re-read `owner()` and `pendingOwner()`; the latter must now be zero.
+
+## 4. Start the agent fail-closed
+
+The agent validates chain ID, deployment block, exact runtime code hash, token
+pair, oracle, V3 pool, settlement authority, and signer before recovering
+orders. A mismatch makes `/health` fail.
+
+Start read-only first:
 
 ```bash
 set -a
-source .env
+source .env.mainnet
 set +a
-export NYX_BATCH_AUCTION=0x...
-export AGENT_PRIVATE_KEY=0x...
-export AGENT_HOST=127.0.0.1
-export CORS_ORIGIN=http://localhost:5190
-# For public deployments, put the agent behind TLS and enable:
-# export AGENT_REQUIRE_API_BEARER_TOKEN=true
-# export AGENT_API_BEARER_TOKEN="$(openssl rand -hex 32)"
+export DRY_RUN=true
 
 cd agent
-npm_config_cache=/tmp/npm-cache npx --yes pnpm@9.15.9 install --store-dir /tmp/pnpm-store
-npm_config_cache=/tmp/npm-cache npx --yes pnpm@9.15.9 dev
+pnpm install --frozen-lockfile
+pnpm test
+pnpm build
+pnpm dry-run
 ```
 
-Health checks:
+Then export `AGENT_PRIVATE_KEY` in the process shell, set `DRY_RUN=false`, and
+run the built service behind TLS. The browser-facing `POST /orders` cannot use
+a shared secret without exposing it to every browser; keep that route public
+but origin-checked and rate-limited at both the agent and reverse proxy. Use
+the separate `QUOTE_PROVIDER_BEARER_TOKEN` only for server-to-server
+`GET /quote-requests` access.
 
 ```bash
-curl -sS http://localhost:8787/health
-curl -sS http://localhost:8787/status
+curl -sS https://agent.example.com/health
+curl -sS https://agent.example.com/status
+curl -sS https://agent.example.com/quote-requests \
+  -H "authorization: Bearer $QUOTE_PROVIDER_BEARER_TOKEN"
 ```
 
-Read-only dry run, no key required:
+`/health` must report deployment verification, the expected authority, and the
+paused state before opening.
+
+## 5. Open only the capped two-wallet canary
+
+The founding trader and quote provider must be distinct wallets; the matcher
+and contract reject one wallet appearing on opposite sides. Both must already
+be allowlisted and separately funded for gas.
+
+From the accepted owner wallet:
 
 ```bash
-cd agent
-npm_config_cache=/tmp/npm-cache npx --yes pnpm@9.15.9 dry-run
+cast send "$NYX_BATCH_AUCTION" "unpause()" \
+  --rpc-url "$RPC_URL" --private-key "$OWNER_PRIVATE_KEY"
 ```
 
-## 4. De-Risk Milestone: Two Orders And One Agent Settlement
-
-Use tiny amounts. The real DEX liquidity is small.
-
-Terminal B:
+Run one tiny round:
 
 ```bash
-set -a
-source .env
-set +a
-export NYX_BATCH_AUCTION=0x...
-export DEPLOYER_PRIVATE_KEY=0x...
-
-export SELL_WBOT=10000000000000000
-export SELL_BOUSDT=100000
-export CLEARING_PRICE_X18=10000000000000000000
-export BATCH_ID=$(cast call "$NYX_BATCH_AUCTION" "currentBatchId()(uint64)" --rpc-url "$RPC_URL")
+export DEPLOYER_PRIVATE_KEY=0x...       # WBOT-side canary wallet
+export COUNTERPARTY_PRIVATE_KEY=0x...   # distinct USDT-side wallet
+scripts/demo-round.sh --reason pair --wbot-size 10000000000000000
 ```
 
-Prepare small real token balances:
+The driver refuses to run when paused, when either wallet is not allowlisted,
+or when both keys resolve to one address. It commits a 15-minute expiry and
+waits for a confirmed settlement.
+
+Immediately verify the transaction, balances, `BatchSettled` reference price,
+settlement hash, and both escrow totals. Then pause again for review:
 
 ```bash
-cast send "$WBOT" "deposit()" \
-  --value 30000000000000000 \
-  --rpc-url "$RPC_URL" \
-  --private-key "$DEPLOYER_PRIVATE_KEY"
-
-cast send "$WBOT" "approve(address,uint256)" "$SWAP_ROUTER" 20000000000000000 \
-  --rpc-url "$RPC_URL" \
-  --private-key "$DEPLOYER_PRIVATE_KEY"
-
-export DEADLINE=$(($(date +%s) + 900))
-cast send "$SWAP_ROUTER" \
-  "exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))" \
-  "($WBOT,$BOUSDT,3000,$DEPLOYER_ADDRESS,$DEADLINE,20000000000000000,0,0)" \
-  --rpc-url "$RPC_URL" \
-  --private-key "$DEPLOYER_PRIVATE_KEY"
+cast send "$NYX_BATCH_AUCTION" "pause()" \
+  --rpc-url "$RPC_URL" --private-key "$OWNER_PRIVATE_KEY"
+cast call "$NYX_BATCH_AUCTION" "totalEscrowed(address)(uint256)" "$WBOT" --rpc-url "$RPC_URL"
+cast call "$NYX_BATCH_AUCTION" "totalEscrowed(address)(uint256)" "$BOUSDT" --rpc-url "$RPC_URL"
 ```
 
-Approve the auction:
+Only change caps or allowlist mode while paused. Do not disable the allowlist
+until independent review, monitoring, and repeated canary settlements justify
+the larger exposure.
+
+## 6. Publish the web build
+
+Set the `VITE_*` values from `.env.mainnet.example`, including
+`VITE_REQUIRE_LIVE=true`, the 15-minute order TTL, and real application links.
 
 ```bash
-cast send "$WBOT" "approve(address,uint256)" "$NYX_BATCH_AUCTION" "$SELL_WBOT" \
-  --rpc-url "$RPC_URL" \
-  --private-key "$DEPLOYER_PRIVATE_KEY"
-
-cast send "$BOUSDT" "approve(address,uint256)" "$NYX_BATCH_AUCTION" "$SELL_BOUSDT" \
-  --rpc-url "$RPC_URL" \
-  --private-key "$DEPLOYER_PRIVATE_KEY"
+cd web
+pnpm install --frozen-lockfile
+pnpm test
+pnpm build
 ```
 
-Compute commitments through the deployed contract:
+Verify in the deployed browser that the auction address, oracle, chain 677,
+paused/allowlist state, cap display, expiry, refund path, and settlement receipt
+all come from the new deployment. Never publish a mainnet build that silently
+falls back to simulated data.
 
-```bash
-export SALT_WBOT=$(cast keccak "nyx-demo-wbot-$(date +%s)")
-export SALT_BOUSDT=$(cast keccak "nyx-demo-bousdt-$(date +%s)")
+## Emergency stop and exit
 
-export COMMIT_WBOT=$(cast call "$NYX_BATCH_AUCTION" \
-  "hashOrder((address,uint64,address,uint256,uint256,bytes32))(bytes32)" \
-  "($DEPLOYER_ADDRESS,$BATCH_ID,$WBOT,$SELL_WBOT,$SELL_BOUSDT,$SALT_WBOT)" \
-  --rpc-url "$RPC_URL")
-
-export COMMIT_BOUSDT=$(cast call "$NYX_BATCH_AUCTION" \
-  "hashOrder((address,uint64,address,uint256,uint256,bytes32))(bytes32)" \
-  "($DEPLOYER_ADDRESS,$BATCH_ID,$BOUSDT,$SELL_BOUSDT,$SELL_WBOT,$SALT_BOUSDT)" \
-  --rpc-url "$RPC_URL")
-```
-
-Submit both commitments on-chain:
-
-```bash
-cast send "$NYX_BATCH_AUCTION" \
-  "submitOrder(uint64,bytes32,address,uint256)" \
-  "$BATCH_ID" "$COMMIT_WBOT" "$WBOT" "$SELL_WBOT" \
-  --rpc-url "$RPC_URL" \
-  --private-key "$DEPLOYER_PRIVATE_KEY"
-
-cast send "$NYX_BATCH_AUCTION" \
-  "submitOrder(uint64,bytes32,address,uint256)" \
-  "$BATCH_ID" "$COMMIT_BOUSDT" "$BOUSDT" "$SELL_BOUSDT" \
-  --rpc-url "$RPC_URL" \
-  --private-key "$DEPLOYER_PRIVATE_KEY"
-```
-
-Send the preimages to the local agent API:
-
-```bash
-curl -sS -X POST http://localhost:8787/orders \
-  -H 'content-type: application/json' \
-  --data '{"trader":"'"$DEPLOYER_ADDRESS"'","batchId":"'"$BATCH_ID"'","sellToken":"'"$WBOT"'","sellAmount":"'"$SELL_WBOT"'","minBuyAmount":"'"$SELL_BOUSDT"'","salt":"'"$SALT_WBOT"'"}'
-
-curl -sS -X POST http://localhost:8787/orders \
-  -H 'content-type: application/json' \
-  --data '{"trader":"'"$DEPLOYER_ADDRESS"'","batchId":"'"$BATCH_ID"'","sellToken":"'"$BOUSDT"'","sellAmount":"'"$SELL_BOUSDT"'","minBuyAmount":"'"$SELL_WBOT"'","salt":"'"$SALT_BOUSDT"'"}'
-```
-
-The agent should simulate, sign with `AGENT_PRIVATE_KEY`, and send
-`settleBatch`. Watch status:
-
-```bash
-curl -sS http://localhost:8787/status
-cast call "$NYX_BATCH_AUCTION" "currentBatchId()(uint64)" --rpc-url "$RPC_URL"
-```
-
-## 5. One-Command Demo Round
-
-With the agent already running on `:8787`, run one seeded batch from the repo
-root:
-
-```bash
-export DEPLOYER_PRIVATE_KEY=0x...
-scripts/demo-round.sh --wbot-size 10000000000000000 --price-slack-bps 0 --reason pair
-```
-
-Usage:
-
-```bash
-scripts/demo-round.sh [--wbot-size WEI] [--price-slack-bps BPS] [--reason pair|depth|notional|spread] [--agent-url URL]
-```
-
-The script sources `.env`, reads `NYX_BATCH_AUCTION`, wraps tiny WBOT, swaps a
-small WBOT amount through the V3 router for BOUSDT, approves the auction,
-submits exact-conserving commitments, POSTs the reveals to the local agent, and
-polls until it can print the settlement tx.
-
-Reason targets:
-
-- `pair` submits one exact complementary pair.
-- `depth` submits enough exact pairs to reach `DEPTH_MIN`.
-- `notional` sizes the pair above `NOTIONAL_MAX_X18` when `--wbot-size` is not
-  provided.
-- `spread` lowers the clearing price within `MAX_CLEARING_DEVIATION_BPS` and
-  relaxes min-buy values so `decision.dexSpreadOk` can become true. The agent's
-  reason priority still applies, so `depth` or `imbalance` may win first if the
-  live config says they should.
+`pause()` blocks new submissions and settlements, but it does not block
+`cancelOrder` or `claimPayout`. Orders can refund immediately when their round
+is stale or their committed expiry arrives; the two-day delay is only the
+fallback. During an incident: pause, preserve logs/state, publish the affected
+block range, let users exit, rotate agent authority if needed, and do not raise
+caps to compensate for failed liquidity.
